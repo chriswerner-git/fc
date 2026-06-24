@@ -41,25 +41,52 @@ struct NetworkInterfaceInfo: Identifiable, Codable, Hashable {
         ipv4SubnetMasks.first ?? "No subnet"
     }
 
+    var primaryCIDRPrefix: String? {
+        guard let mask = ipv4SubnetMasks.first else { return nil }
+        let parts = mask.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4 else { return nil }
+        let count = parts.reduce(0) { partial, octet in
+            partial + octet.nonzeroBitCount
+        }
+        return "/\(count)"
+    }
+
     var dashboardDisplayName: String {
         displayName == name ? name : "\(displayName) · \(name)"
     }
 
-    var detailDisplay: String {
-        var parts: [String] = []
-        if isUp { parts.append("Up") } else { parts.append("Down") }
-        if isLoopback { parts.append("Loopback") }
-
+    var dashboardAddressDisplay: String {
         if let ipv4 = ipv4Addresses.first {
-            if let mask = ipv4SubnetMasks.first {
-                parts.append("\(ipv4) / \(mask)")
-            } else {
-                parts.append(ipv4)
-            }
-        } else {
-            parts.append(primaryAddress)
+            return "\(ipv4) \(primaryCIDRPrefix ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        return primaryAddress
+    }
 
-        return parts.joined(separator: " · ")
+    var detailDisplay: String {
+        var lines: [String] = []
+        lines.append(displayName == name ? name : "\(displayName) · \(name)")
+        lines.append(isUp ? "Status: Up" : "Status: Down")
+        if isLoopback { lines.append("Loopback interface") }
+        if !ipv4Addresses.isEmpty {
+            let addresses = ipv4Addresses.enumerated().map { index, address in
+                let mask = ipv4SubnetMasks.indices.contains(index) ? ipv4SubnetMasks[index] : ""
+                let prefix = Self.cidrPrefix(from: mask) ?? ""
+                return "\(address) \(prefix)".trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            lines.append("IPv4: \(addresses.joined(separator: ", "))")
+        }
+        if !ipv6Addresses.isEmpty {
+            lines.append("IPv6: \(ipv6Addresses.joined(separator: ", "))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func cidrPrefix(from mask: String) -> String? {
+        let parts = mask.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4 else { return nil }
+        let count = parts.reduce(0) { partial, octet in
+            partial + octet.nonzeroBitCount
+        }
+        return "/\(count)"
     }
 }

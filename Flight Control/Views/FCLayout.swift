@@ -42,10 +42,10 @@ enum FCLayout {
 
     enum Dashboard {
         static let clockPanelHeight: CGFloat = 118
-        static let clockPanelVerticalPadding: CGFloat = 4
+        static let clockPanelVerticalPadding: CGFloat = 8
         static let clockPanelHorizontalPadding: CGFloat = 14
         static let clockProjectNameFontSize: CGFloat = 14
-        static let clockTimeFontSize: CGFloat = 44
+        static let clockTimeFontSize: CGFloat = 38
     }
 
     enum Spacing {

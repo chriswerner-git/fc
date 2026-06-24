@@ -101,8 +101,8 @@ struct MonitoringSettings: Codable, Hashable {
     var timecodeIntegrationEnabled: Bool = false
     var timecodeSources: [String] = []
     var selectedTimecodeSource: String = ""
-
-
+    var cameraFeedNames: [String] = []
+    var dashboardDividers: [DashboardDivider] = []
 
     enum CodingKeys: String, CodingKey {
         case projectName
@@ -126,6 +126,8 @@ struct MonitoringSettings: Codable, Hashable {
         case timecodeIntegrationEnabled
         case timecodeSources
         case selectedTimecodeSource
+        case cameraFeedNames
+        case dashboardDividers
     }
 
     init() { }
@@ -153,6 +155,8 @@ struct MonitoringSettings: Codable, Hashable {
         timecodeIntegrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .timecodeIntegrationEnabled) ?? false
         timecodeSources = try container.decodeIfPresent([String].self, forKey: .timecodeSources) ?? []
         selectedTimecodeSource = try container.decodeIfPresent(String.self, forKey: .selectedTimecodeSource) ?? ""
+        cameraFeedNames = try container.decodeIfPresent([String].self, forKey: .cameraFeedNames) ?? []
+        dashboardDividers = try container.decodeIfPresent([DashboardDivider].self, forKey: .dashboardDividers) ?? []
         clampValues()
     }
 
@@ -180,6 +184,19 @@ struct MonitoringSettings: Codable, Hashable {
         selectedTimecodeSource = selectedTimecodeSource.trimmingCharacters(in: .whitespacesAndNewlines)
         if !selectedTimecodeSource.isEmpty, !timecodeSources.contains(where: { $0.caseInsensitiveCompare(selectedTimecodeSource) == .orderedSame }) {
             selectedTimecodeSource = ""
+        }
+
+        var cleanedCameras: [String] = []
+        for camera in cameraFeedNames.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !camera.isEmpty {
+            if !cleanedCameras.contains(where: { $0.caseInsensitiveCompare(camera) == .orderedSame }) {
+                cleanedCameras.append(camera)
+            }
+        }
+        cameraFeedNames = cleanedCameras.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+        for index in dashboardDividers.indices {
+            dashboardDividers[index].title = dashboardDividers[index].title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if dashboardDividers[index].title.isEmpty { dashboardDividers[index].title = "Section" }
         }
     }
 }

@@ -27,6 +27,7 @@ struct PreferencesView: View {
 
     @State private var selectedPane: PreferencePane = .app
     @State private var newTimecodeSourceName: String = ""
+    @State private var newCameraFeedName: String = ""
 
     // MARK: - Body
 
@@ -442,6 +443,49 @@ struct PreferencesView: View {
                 }
             }
 
+            preferenceCard(title: "Camera Feeds", subtitle: "Placeholder names for the Dashboard camera-feed panel. Video preview is not active yet.") {
+                HStack(spacing: 8) {
+                    TextField("New camera feed", text: $newCameraFeedName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addCameraFeed() }
+
+                    Button { addCameraFeed() } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .disabled(newCameraFeedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if appState.settings.cameraFeedNames.isEmpty {
+                    Text("No camera feeds defined yet. Dashboard placeholders will use Camera 1, Camera 2, and Camera 3.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(appState.settings.cameraFeedNames, id: \.self) { camera in
+                            HStack(spacing: 8) {
+                                Image(systemName: "video.fill")
+                                    .foregroundStyle(FCDesign.ColorToken.active)
+                                    .frame(width: 18)
+                                Text(camera)
+                                    .font(.subheadline)
+                                Spacer()
+                                Button(role: .destructive) {
+                                    removeCameraFeed(camera)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(FCDesign.ColorToken.quietSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: FCDesign.Radius.chip, style: .continuous))
+                        }
+                    }
+                }
+            }
+
+
             preferenceCard(title: "Future Systems", subtitle: "Visible placeholders for planned Flight Control architecture.") {
                 preferenceRow(
                     systemImage: "dot.radiowaves.left.and.right",
@@ -774,6 +818,24 @@ struct PreferencesView: View {
         if appState.settings.selectedTimecodeSource.caseInsensitiveCompare(source) == .orderedSame {
             appState.settings.selectedTimecodeSource = ""
         }
+        appState.applySettings()
+    }
+
+    private func addCameraFeed() {
+        let value = newCameraFeedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+
+        if !appState.settings.cameraFeedNames.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+            appState.settings.cameraFeedNames.append(value)
+            appState.settings.cameraFeedNames.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+
+        newCameraFeedName = ""
+        appState.applySettings()
+    }
+
+    private func removeCameraFeed(_ camera: String) {
+        appState.settings.cameraFeedNames.removeAll { $0.caseInsensitiveCompare(camera) == .orderedSame }
         appState.applySettings()
     }
 

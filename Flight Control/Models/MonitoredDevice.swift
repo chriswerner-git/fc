@@ -24,6 +24,31 @@
 
 import Foundation
 
+
+struct DashboardDivider: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var title: String = "Section"
+    var dashboardGridIndex: Int? = nil
+
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Section" : trimmed
+    }
+}
+
+enum DashboardItemKind: String, Codable, Hashable {
+    case device
+    case divider
+}
+
+struct DashboardLayoutItem: Identifiable, Hashable {
+    var id: UUID
+    var kind: DashboardItemKind
+    var device: MonitoredDevice?
+    var divider: DashboardDivider?
+    var sortIndex: Int
+}
+
 struct MonitoredDevice: Identifiable, Codable, Hashable {
     var id: UUID = UUID()
     var name: String = "New Device"
@@ -41,6 +66,9 @@ struct MonitoredDevice: Identifiable, Codable, Hashable {
     var preferredInterfaceIdentifier: String? = nil
     var warningMissCount: Int = 1
     var criticalMissCount: Int = 3
+
+    // Optional Dashboard placement index. Nil values fall back to health/name sorting.
+    var dashboardGridIndex: Int? = nil
 
     // Runtime health fields are persisted intentionally so relaunches can show
     // the last known state instead of blanking the dashboard until the next scan.

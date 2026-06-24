@@ -117,6 +117,123 @@ final class AppState: NSObject, ObservableObject {
         Array(statusEvents.sorted { $0.date > $1.date }.prefix(limit))
     }
 
+    func dashboardOrderedDevices() -> [MonitoredDevice] {
+        devices.sorted { lhs, rhs in
+            let leftIndex = lhs.dashboardGridIndex ?? Int.max
+            let rightIndex = rhs.dashboardGridIndex ?? Int.max
+            if leftIndex != rightIndex { return leftIndex < rightIndex }
+            if lhs.healthState != rhs.healthState { return lhs.healthState < rhs.healthState }
+            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    func dashboardLayoutItems() -> [DashboardLayoutItem] {
+        var items: [DashboardLayoutItem] = []
+
+        for (fallbackIndex, divider) in settings.dashboardDividers.enumerated() {
+            items.append(DashboardLayoutItem(
+                id: divider.id,
+                kind: .divider,
+                device: nil,
+                divider: divider,
+                sortIndex: divider.dashboardGridIndex ?? (10_000 + fallbackIndex)
+            ))
+        }
+
+        for (fallbackIndex, device) in dashboardOrderedDevices().enumerated() {
+            items.append(DashboardLayoutItem(
+                id: device.id,
+                kind: .device,
+                device: device,
+                divider: nil,
+                sortIndex: device.dashboardGridIndex ?? (20_000 + fallbackIndex)
+            ))
+        }
+
+        return items.sorted { lhs, rhs in
+            if lhs.sortIndex != rhs.sortIndex { return lhs.sortIndex < rhs.sortIndex }
+            if lhs.kind != rhs.kind { return lhs.kind == .divider }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    func addDashboardDivider() {
+        let nextIndex = (dashboardLayoutItems().map(\.sortIndex).max() ?? -1) + 1
+        var divider = DashboardDivider()
+        divider.title = "Section"
+        divider.dashboardGridIndex = nextIndex
+        settings.dashboardDividers.append(divider)
+        scheduleSave()
+    }
+
+    func deleteDashboardDivider(_ dividerID: UUID) {
+        settings.dashboardDividers.removeAll { $0.id == dividerID }
+        normalizeDashboardLayoutOrder()
+        scheduleSave()
+    }
+
+    func updateDashboardDividerTitle(_ dividerID: UUID, title: String) {
+        guard let index = settings.dashboardDividers.firstIndex(where: { $0.id == dividerID }) else { return }
+        settings.dashboardDividers[index].title = title
+        scheduleSave()
+    }
+
+    func moveDeviceInDashboard(_ sourceID: UUID, before targetID: UUID) {
+        moveDashboardItem(sourceID: sourceID, sourceKind: .device, before: targetID, targetKind: .device)
+    }
+
+    func moveDashboardDividerUp(_ dividerID: UUID) {
+        moveDashboardItemByOffset(sourceID: dividerID, sourceKind: .divider, offset: -1)
+    }
+
+    func moveDashboardDividerDown(_ dividerID: UUID) {
+        moveDashboardItemByOffset(sourceID: dividerID, sourceKind: .divider, offset: 1)
+    }
+
+    private func moveDashboardItemByOffset(sourceID: UUID, sourceKind: DashboardItemKind, offset: Int) {
+        guard offset != 0 else { return }
+        var ordered = dashboardLayoutItems()
+        guard let sourceIndex = ordered.firstIndex(where: { $0.id == sourceID && $0.kind == sourceKind }) else { return }
+        let destinationIndex = min(max(sourceIndex + offset, 0), ordered.count - 1)
+        guard destinationIndex != sourceIndex else { return }
+        let moving = ordered.remove(at: sourceIndex)
+        ordered.insert(moving, at: destinationIndex)
+        applyDashboardLayoutOrder(ordered)
+        scheduleSave()
+    }
+
+    func moveDashboardItem(sourceID: UUID, sourceKind: DashboardItemKind, before targetID: UUID, targetKind: DashboardItemKind) {
+        guard sourceID != targetID || sourceKind != targetKind else { return }
+        var ordered = dashboardLayoutItems()
+        guard let sourceIndex = ordered.firstIndex(where: { $0.id == sourceID && $0.kind == sourceKind }),
+              let targetIndex = ordered.firstIndex(where: { $0.id == targetID && $0.kind == targetKind }) else { return }
+
+        let moving = ordered.remove(at: sourceIndex)
+        let adjustedTargetIndex = sourceIndex < targetIndex ? max(targetIndex - 1, 0) : targetIndex
+        ordered.insert(moving, at: adjustedTargetIndex)
+        applyDashboardLayoutOrder(ordered)
+        scheduleSave()
+    }
+
+    private func normalizeDashboardLayoutOrder() {
+        applyDashboardLayoutOrder(dashboardLayoutItems())
+    }
+
+    private func applyDashboardLayoutOrder(_ orderedItems: [DashboardLayoutItem]) {
+        for (position, item) in orderedItems.enumerated() {
+            switch item.kind {
+            case .device:
+                if let index = devices.firstIndex(where: { $0.id == item.id }) {
+                    devices[index].dashboardGridIndex = position
+                }
+            case .divider:
+                if let index = settings.dashboardDividers.firstIndex(where: { $0.id == item.id }) {
+                    settings.dashboardDividers[index].dashboardGridIndex = position
+                }
+            }
+        }
+    }
+
     func toggleMonitoring() {
         settings.monitoringEnabled.toggle()
         settings.monitoringEnabled ? monitoringEngine.start() : monitoringEngine.stop()
