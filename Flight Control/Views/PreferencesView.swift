@@ -506,29 +506,50 @@ private var projectInformationCard: some View {
     // MARK: - Import / Export Pane
 
     private var importExportPane: some View {
-        LTCImportExportShell {
-            VStack(alignment: .leading, spacing: 10) {
-                LTCAlertBanner(
-                    title: "Reserved for Future Configuration Transfer",
-                    message: "Flight Control is not importing or exporting project configurations yet. This pane is intentionally reserved for JSON configuration export, JSON import, and future CSV device inventory import.",
-                    level: .info
-                )
+        VStack(alignment: .leading, spacing: 16) {
+            LTCAlertBanner(
+                title: "Import / Export In Progress",
+                message: "Flight Control will use this shared LunarKit tool pattern for JSON project export, JSON project import, and future CSV device inventory import. The controls are visible now but intentionally disabled until the data-transfer workflow is implemented.",
+                level: .info
+            )
 
-                LTCPreferenceActionRow(
+            LTCConfigurationToolShell(
+                title: "Configuration Transfer",
+                subtitle: "Shared import/export tool structure for project configuration files.",
+                systemImage: "square.and.arrow.up.on.square"
+            ) {
+                LTCConfigurationToolActionRow(
                     title: "Export Configuration",
-                    description: "Future tool for saving a project configuration bundle.",
+                    description: "Future tool for saving the current Flight Control project configuration as a portable file.",
                     systemImage: "square.and.arrow.up",
                     buttonTitle: "Export…",
-                    level: .inactive
+                    level: .info,
+                    isEnabled: false
                 ) { }
 
-                LTCPreferenceActionRow(
-                    title: "Import Configuration",
-                    description: "Future tool for importing and validating a saved configuration.",
+                Divider().overlay(LTCDesign.ColorToken.divider)
+
+                LTCConfigurationToolActionRow(
+                    title: "Import and Merge",
+                    description: "Future tool for importing compatible devices, groups, rules, and dashboard layout without replacing the whole project.",
                     systemImage: "square.and.arrow.down",
                     buttonTitle: "Import…",
-                    level: .inactive
+                    level: .info,
+                    isEnabled: false
                 ) { }
+
+                LTCConfigurationToolActionRow(
+                    title: "Import and Replace",
+                    description: "Future protected tool for replacing the current project configuration after validation and confirmation.",
+                    systemImage: "arrow.triangle.2.circlepath",
+                    buttonTitle: "Replace…",
+                    level: .warning,
+                    isEnabled: false
+                ) { }
+
+                LTCConfigurationSummaryRow(title: "Current Status", value: "Reserved", level: .inactive)
+                LTCConfigurationSummaryRow(title: "Planned Format", value: "JSON", level: .info)
+                LTCConfigurationSummaryRow(title: "Future Inventory Import", value: "CSV", level: .info)
             }
         }
     }
@@ -536,60 +557,50 @@ private var projectInformationCard: some View {
     // MARK: - Restore Pane
 
     private var restorePane: some View {
-        LTCRestoreDefaultsShell {
-            VStack(alignment: .leading, spacing: 10) {
-                LTCPreferenceActionRow(
-                    title: "Save Current Configuration",
-                    description: "Immediately writes the current Flight Control configuration to local persistence.",
-                    systemImage: "externaldrive.fill",
-                    buttonTitle: "Save Now",
-                    level: .info
-                ) {
-                    appState.saveNow()
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            LTCPreferenceActionRow(
+                title: "Save Current Configuration",
+                description: "Immediately writes the current Flight Control configuration to local persistence.",
+                systemImage: "externaldrive.fill",
+                buttonTitle: "Save Now",
+                level: .info
+            ) {
+                appState.saveNow()
+            }
 
-                LTCPreferenceActionRow(
-                    title: "Restore App Defaults",
-                    description: "Future tool for restoring app-level preferences without deleting project inventory.",
-                    systemImage: "arrow.counterclockwise",
-                    buttonTitle: "Restore…",
-                    level: .inactive
-                ) { }
-
-                LTCPreferenceActionRow(
-                    title: "Restore Project Defaults",
-                    description: "Future tool for restoring project-level defaults after confirmation.",
-                    systemImage: "folder.badge.gearshape",
-                    buttonTitle: "Restore…",
-                    level: .inactive
-                ) { }
-
-                LTCPreferenceActionRow(
+            LTCRestoreDefaultsTool(
+                restoreAppDefaults: {},
+                restoreProjectDefaults: {},
+                restoreAllDefaults: {}
+            ) {
+                LTCConfigurationToolActionRow(
                     title: "Delete Devices and Groups",
                     description: "Future destructive reset for inventory data. This will require confirmation before activation.",
                     systemImage: "trash.fill",
                     buttonTitle: "Delete…",
-                    level: .critical
+                    level: .critical,
+                    isEnabled: false
                 ) { }
 
-                LTCPreferenceCard(
-                    title: "Configuration File",
-                    subtitle: "Current local configuration storage.",
-                    systemImage: "doc.text"
-                ) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(PersistenceService.snapshotURL.path)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(LTCDesign.ColorToken.secondaryText)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                            .textSelection(.enabled)
+                Divider().overlay(LTCDesign.ColorToken.divider)
 
-                        if let error = appState.lastPersistenceError {
-                            LTCAlertBanner(title: "Persistence Error", message: error, level: .warning)
-                        }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Configuration File")
+                        .font(LTCDesign.FontToken.rowTitle)
+                        .foregroundStyle(LTCDesign.ColorToken.primaryText)
+
+                    Text(PersistenceService.snapshotURL.path)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(LTCDesign.ColorToken.secondaryText)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    if let error = appState.lastPersistenceError {
+                        LTCAlertBanner(title: "Persistence Error", message: error, level: .warning)
                     }
                 }
+                .padding(.top, 4)
             }
         }
     }

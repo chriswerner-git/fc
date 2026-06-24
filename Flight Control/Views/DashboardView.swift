@@ -66,10 +66,41 @@ struct DashboardView: View {
                 computerUptime: computerUptimeDisplay,
                 appUptime: appState.uptimeDisplay,
                 aboutButtonTitle: "About FC",
-                aboutAction: { openWindow(id: "about-window") }
+                aboutAction: { openWindow(id: "about-window") },
+                clockText: dashboardClockText(for: context.date),
+                dateText: LTCFormatters.fullDateText(context.date)
             ) {
                 futureLinkStatus
             }
+        }
+    }
+
+    /// Shared dashboard clock text that respects Flight Control's app-level
+    /// 12-hour / 24-hour preference.  In 12-hour mode, the formatter includes
+    /// the AM/PM marker so the display is unambiguous across the LTC app suite.
+    private func dashboardClockText(for date: Date) -> String {
+        let format = normalizedDashboardTimeFormat(from: appState.settings.timeFormatRawValue)
+        return LTCFormatters.clockText(date, timeFormat: format, includeSeconds: true)
+    }
+
+    /// Accepts both current LunarKit raw values and earlier/local stored values.
+    /// This keeps the dashboard clock stable when preferences were saved before
+    /// the shared time-format enum was introduced.
+    private func normalizedDashboardTimeFormat(from rawValue: String) -> LTCTimeFormat {
+        let normalized = rawValue
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+
+        switch normalized {
+        case "twelvehour", "12hour", "12", "h12":
+            return .twelveHour
+        case "twentyfourhour", "24hour", "24", "h24":
+            return .twentyFourHour
+        default:
+            return LTCTimeFormat(rawValue: rawValue) ?? .twentyFourHour
         }
     }
 
