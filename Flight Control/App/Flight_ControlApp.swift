@@ -24,6 +24,7 @@
 
 import AppKit
 import SwiftUI
+import LunarKit
 
 @main
 struct Flight_ControlApp: App {
@@ -52,7 +53,7 @@ struct Flight_ControlApp: App {
     }
 
     private var dashboardWindow: some Scene {
-        Window("FC - Dashboard", id: "dashboard-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "Dashboard"), id: "dashboard-window") {
             FCMainWindowView()
                 .environmentObject(appState)
                 .onAppear { activateApp() }
@@ -62,7 +63,7 @@ struct Flight_ControlApp: App {
     }
 
     private var inventoryWindow: some Scene {
-        Window("FC - Device Inventory", id: "inventory-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "Device Inventory"), id: "inventory-window") {
             DeviceInventoryView()
                 .environmentObject(appState)
                 .onAppear { activateApp() }
@@ -72,7 +73,7 @@ struct Flight_ControlApp: App {
     }
 
     private var preferencesWindow: some Scene {
-        Window("FC - Preferences", id: "preferences-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "Preferences"), id: "preferences-window") {
             PreferencesView()
                 .environmentObject(appState)
                 .onAppear { activateApp() }
@@ -82,7 +83,7 @@ struct Flight_ControlApp: App {
     }
 
     private var diagnosticsWindow: some Scene {
-        Window("FC - Diagnostics", id: "diagnostics-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "Diagnostics"), id: "diagnostics-window") {
             DiagnosticsView()
                 .environmentObject(appState)
                 .onAppear { activateApp() }
@@ -92,7 +93,7 @@ struct Flight_ControlApp: App {
     }
 
     private var aboutWindow: some Scene {
-        Window("FC - About", id: "about-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "About"), id: "about-window") {
             AboutFlightControlView()
                 .onAppear { activateApp() }
         }
@@ -101,7 +102,7 @@ struct Flight_ControlApp: App {
     }
 
     private var helpWindow: some Scene {
-        Window("FC - Help", id: "help-window") {
+        Window(LTCAppIdentity.windowTitle(initials: "FC", windowName: "Help"), id: "help-window") {
             HelpFlightControlView()
                 .onAppear { activateApp() }
         }
