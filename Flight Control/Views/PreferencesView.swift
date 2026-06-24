@@ -5,9 +5,8 @@
 //  └─────────────────────────────────────────────────────────────┘
 //
 //  File: PreferencesView.swift
-//  Purpose: LCC/MLog-style two-pane preferences for app runtime,
-//           project monitoring defaults, network interface behavior,
-//           future import/export, and restore tools.
+//  Purpose: Flight Control preferences using LunarKit's shared
+//           two-pane preferences shell and shared preference components.
 //
 //  Created by Chris Werner / Lunar Telephone Company.
 //  © 2026 Lunar Telephone Company. All rights reserved.
@@ -17,6 +16,7 @@
 
 import Foundation
 import SwiftUI
+import LunarKit
 
 struct PreferencesView: View {
     // MARK: - Environment
@@ -36,21 +36,21 @@ struct PreferencesView: View {
             title: "FC - Preferences",
             subtitle: "Configure app behavior, project defaults, network interfaces, and future configuration tools."
         ) {
-            HStack(spacing: 0) {
-                sidebar
-
-                Divider()
-                    .opacity(0.35)
-
-                contentPanel
+            LTCPreferencesShell(
+                identity: .flightControlPreferences,
+                panes: preferencePanes,
+                selection: $selectedPane
+            ) { pane in
+                paneContent(for: pane.id)
             }
+            .padding(18)
             .background(
-                RoundedRectangle(cornerRadius: FCDesign.Radius.panel, style: .continuous)
-                    .fill(FCDesign.ColorToken.controlBackground.opacity(0.32))
+                RoundedRectangle(cornerRadius: LTCDesign.Spacing.cornerRadius, style: .continuous)
+                    .fill(LTCDesign.ColorToken.elevatedCardBackground.opacity(0.55))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: FCDesign.Radius.panel, style: .continuous)
-                    .strokeBorder(FCDesign.ColorToken.standardBorder, lineWidth: 1)
+                RoundedRectangle(cornerRadius: LTCDesign.Spacing.cornerRadius, style: .continuous)
+                    .strokeBorder(LTCDesign.ColorToken.border, lineWidth: 1)
             )
             .onAppear {
                 appState.refreshNetworkInterfaces()
@@ -71,137 +71,32 @@ struct PreferencesView: View {
         }
     }
 
-    // MARK: - Sidebar
+    // MARK: - LunarKit Pane Bridge
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sidebarHeader
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(PreferencePane.allCases) { pane in
-                    sidebarButton(pane)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            Text("Changes are saved automatically.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
+    private var preferencePanes: [LTCPreferencesPane<PreferencePane>] {
+        PreferencePane.allCases.map {
+            LTCPreferencesPane(
+                id: $0,
+                title: $0.title,
+                subtitle: $0.subtitle,
+                systemImage: $0.systemImage
+            )
         }
-        .padding(18)
-        .frame(width: 238, alignment: .topLeading)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var sidebarHeader: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(FCDesign.ColorToken.active)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Preferences")
-                    .font(.title3.bold())
-                Text("Settings and future tools.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.bottom, 4)
-    }
-
-    private func sidebarButton(_ pane: PreferencePane) -> some View {
-        Button {
-            selectedPane = pane
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: pane.systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 18)
-
-                Text(pane.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selectedPane == pane ? .primary : .secondary)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(selectedPane == pane ? FCDesign.ColorToken.active.opacity(0.18) : Color.clear)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(
-                    selectedPane == pane ? FCDesign.ColorToken.active.opacity(0.35) : Color.clear,
-                    lineWidth: 1
-                )
-        )
-    }
-
-    // MARK: - Content Panel
-
-    private var contentPanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            contentHeader
-
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 16) {
-                    switch selectedPane {
-                    case .app:
-                        appPane
-                    case .project:
-                        projectPane
-                    case .network:
-                        networkPane
-                    case .importExport:
-                        importExportPane
-                    case .restore:
-                        restorePane
-                    }
-                }
-                .padding(.trailing, 6)
-                .padding(.bottom, 20)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var contentHeader: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(FCDesign.ColorToken.active.opacity(0.18))
-                    .frame(width: 40, height: 40)
-
-                Image(systemName: selectedPane.systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(FCDesign.ColorToken.active)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(selectedPane.title)
-                    .font(.largeTitle.bold())
-
-                Text(selectedPane.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
+    @ViewBuilder
+    private func paneContent(for pane: PreferencePane) -> some View {
+        switch pane {
+        case .app:
+            appPane
+        case .project:
+            projectPane
+        case .network:
+            networkPane
+        case .importExport:
+            importExportPane
+        case .restore:
+            restorePane
         }
     }
 
@@ -209,72 +104,71 @@ struct PreferencesView: View {
 
     private var appPane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            preferenceCard(title: "App Runtime", subtitle: "Controls local application behavior.") {
-                preferenceRow(
-                    systemImage: "antenna.radiowaves.left.and.right",
-                    title: "Monitoring Enabled",
-                    subtitle: appState.settings.monitoringEnabled ? "Flight Control is actively evaluating due device checks." : "Monitoring is paused. Device state will not update."
-                ) {
-                    Toggle("", isOn: $appState.settings.monitoringEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
+            LTCPreferenceCard(
+                title: "App Runtime",
+                subtitle: "Controls local application behavior.",
+                systemImage: "app.badge"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Monitoring Enabled",
+                        description: appState.settings.monitoringEnabled ? "Flight Control is actively evaluating due device checks." : "Monitoring is paused. Device state will not update."
+                    ) {
+                        Toggle("", isOn: $appState.settings.monitoringEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
 
-                preferenceDivider
+                    preferenceDivider
 
-                preferenceRow(
-                    systemImage: "power.circle.fill",
-                    title: "Launch App at Startup",
-                    subtitle: LoginStartupService.status.helpText
-                ) {
-                    Toggle("", isOn: $appState.settings.launchAtLogin)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
+                    LTCPreferenceRow(
+                        title: "Launch App at Startup",
+                        description: LoginStartupService.status.helpText
+                    ) {
+                        Toggle("", isOn: $appState.settings.launchAtLogin)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
 
-                statusRow(
-                    systemImage: "checkmark.seal",
-                    title: "Launch at Startup Status",
-                    value: LoginStartupService.status.displayName,
-                    subtitle: "macOS controls whether unsigned development builds can be registered as login items."
-                )
+                    statusRow(
+                        title: "Launch at Startup Status",
+                        value: LoginStartupService.status.displayName,
+                        description: "macOS controls whether unsigned development builds can be registered as login items."
+                    )
 
-                preferenceRow(
-                    systemImage: "moon.zzz.fill",
-                    title: "Prevent System Sleep While Monitoring",
-                    subtitle: appState.settings.preventSleep ? "Flight Control will request an idle sleep assertion while monitoring is enabled." : "The computer may sleep according to macOS Energy settings."
-                ) {
-                    Toggle("", isOn: $appState.settings.preventSleep)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
+                    LTCPreferenceRow(
+                        title: "Prevent System Sleep While Monitoring",
+                        description: appState.settings.preventSleep ? "Flight Control will request an idle sleep assertion while monitoring is enabled." : "The computer may sleep according to macOS Energy settings."
+                    ) {
+                        Toggle("", isOn: $appState.settings.preventSleep)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
 
-                preferenceDivider
+                    preferenceDivider
 
-                preferenceRow(
-                    systemImage: "doc.text.magnifyingglass",
-                    title: "Operational Logging",
-                    subtitle: appState.settings.operationalLoggingEnabled ? "Additional operational messages may be retained for troubleshooting." : "Operational logging is off. Status events are still retained."
-                ) {
-                    Toggle("", isOn: $appState.settings.operationalLoggingEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
+                    LTCPreferenceRow(
+                        title: "Operational Logging",
+                        description: appState.settings.operationalLoggingEnabled ? "Additional operational messages may be retained for troubleshooting." : "Operational logging is off. Status events are still retained."
+                    ) {
+                        Toggle("", isOn: $appState.settings.operationalLoggingEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
 
-                preferenceRow(
-                    systemImage: "clock.arrow.circlepath",
-                    title: "Status Retention",
-                    subtitle: "Default is 30 days. Older status events are pruned during saves."
-                ) {
-                    HStack(spacing: 6) {
-                        TextField("30", value: $appState.settings.retentionDays, format: .number.grouping(.never))
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 72)
-
-                        Text("days")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    LTCPreferenceRow(
+                        title: "Status Retention",
+                        description: "Default is 30 days. Older status events are pruned during saves."
+                    ) {
+                        HStack(spacing: 6) {
+                            TextField("30", value: $appState.settings.retentionDays, format: .number.grouping(.never))
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 72)
+                            Text("days")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -284,7 +178,7 @@ struct PreferencesView: View {
                     title: "Runtime Preference Error",
                     message: error,
                     symbol: "exclamationmark.triangle.fill",
-                    accent: FCDesign.ColorToken.warning
+                    accent: LTCDesign.ColorToken.warning
                 )
             }
         }
@@ -294,227 +188,201 @@ struct PreferencesView: View {
 
     private var projectPane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            preferenceCard(title: "Project Identity", subtitle: "Shown on the Dashboard clock panel and future reports.") {
-                preferenceRow(
-                    systemImage: "folder",
-                    title: "Project Name",
-                    subtitle: "Optional. Leave blank to show Flight Control."
-                ) {
-                    TextField("Flight Control", text: $appState.settings.projectName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 240)
-                }
+            LTCPreferenceCard(
+                title: "Project Identity",
+                subtitle: "Shown on the Dashboard clock panel and future reports.",
+                systemImage: "folder"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Project Name",
+                        description: "Optional. Leave blank to show Flight Control."
+                    ) {
+                        TextField("Flight Control", text: $appState.settings.projectName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 240)
+                    }
 
-                preferenceRow(
-                    systemImage: "mappin.and.ellipse",
-                    title: "Project Location",
-                    subtitle: "Used by the Dashboard weather placeholder. Weather integration is planned."
-                ) {
-                    TextField("City, State / Venue / Site", text: $appState.settings.projectLocation)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(minWidth: 240)
+                    LTCPreferenceRow(
+                        title: "Project Location",
+                        description: "Used by the Dashboard weather placeholder. Weather integration is planned."
+                    ) {
+                        TextField("City, State / Venue / Site", text: $appState.settings.projectLocation)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 240)
+                    }
                 }
             }
 
-            preferenceCard(title: "Monitoring Defaults", subtitle: "Default values used by newly-added devices and devices set to Default.") {
-                preferenceRow(
-                    systemImage: "timer",
-                    title: "Default Check Interval",
-                    subtitle: "Used when a device's interval is set to Default."
-                ) {
-                    Picker("", selection: $appState.settings.defaultCheckIntervalSeconds) {
-                        ForEach(CheckIntervalOption.standardOptions) { option in
-                            Text(option.displayName).tag(option.seconds)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 120)
-                }
-
-                preferenceRow(
-                    systemImage: "speedometer",
-                    title: "Minimum Check Interval",
-                    subtitle: "Safety clamp that prevents accidentally aggressive polling."
-                ) {
-                    secondsField(value: $appState.settings.minimumCheckIntervalSeconds, placeholder: "5")
-                }
-
-                preferenceRow(
-                    systemImage: "hourglass",
-                    title: "Ping Timeout",
-                    subtitle: "Maximum wait time before one ping probe is considered failed."
-                ) {
-                    secondsField(value: $appState.settings.pingTimeoutSeconds, placeholder: "2")
-                }
-
-                preferenceRow(
-                    systemImage: "rectangle.stack.badge.play",
-                    title: "Ping Concurrency Limit",
-                    subtitle: "Maximum number of ping checks that should run at the same time."
-                ) {
-                    intField(value: $appState.settings.pingConcurrencyLimit, placeholder: "24")
-                }
-
-                preferenceDivider
-
-                preferenceRow(
-                    systemImage: "exclamationmark.triangle.fill",
-                    title: "Warning Miss Count",
-                    subtitle: "Consecutive failed checks before a device becomes Warning."
-                ) {
-                    intField(value: $appState.settings.defaultWarningMissCount, placeholder: "1")
-                }
-
-                preferenceRow(
-                    systemImage: "xmark.octagon.fill",
-                    title: "Critical Miss Count",
-                    subtitle: "Consecutive failed checks before a device becomes Critical."
-                ) {
-                    intField(value: $appState.settings.defaultCriticalMissCount, placeholder: "3")
-                }
-
-                preferenceRow(
-                    systemImage: "bell.badge.fill",
-                    title: "Show In-App Critical Popups",
-                    subtitle: appState.settings.showInAppCriticalPopups ? "Critical state transitions may open an acknowledgement alert." : "Critical state transitions will only appear in the dashboard."
-                ) {
-                    Toggle("", isOn: $appState.settings.showInAppCriticalPopups)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-            }
-
-            preferenceCard(title: "Timecode Sources", subtitle: "Source definitions for the Dashboard timecode placeholder. Inputs are not active yet.") {
-                preferenceRow(
-                    systemImage: "waveform.path.ecg.rectangle",
-                    title: "Selected Source",
-                    subtitle: "The Dashboard Timecode Feed panel will display this source."
-                ) {
-                    Picker("", selection: $appState.settings.selectedTimecodeSource) {
-                        Text("None").tag("")
-                        ForEach(appState.settings.timecodeSources, id: \.self) { source in
-                            Text(source).tag(source)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 220)
-                }
-
-                preferenceDivider
-
-                HStack(spacing: 8) {
-                    TextField("New timecode source", text: $newTimecodeSourceName)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addTimecodeSource() }
-
-                    Button { addTimecodeSource() } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .disabled(newTimecodeSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                if appState.settings.timecodeSources.isEmpty {
-                    Text("No timecode sources defined yet.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(appState.settings.timecodeSources, id: \.self) { source in
-                            HStack(spacing: 8) {
-                                Image(systemName: "clock.badge")
-                                    .foregroundStyle(FCDesign.ColorToken.active)
-                                    .frame(width: 18)
-                                Text(source)
-                                    .font(.subheadline)
-                                Spacer()
-                                Button(role: .destructive) {
-                                    removeTimecodeSource(source)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
+            LTCPreferenceCard(
+                title: "Monitoring Defaults",
+                subtitle: "Default values used by newly-added devices and devices set to Default.",
+                systemImage: "timer"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Default Check Interval",
+                        description: "Used when a device's interval is set to Default."
+                    ) {
+                        Picker("", selection: $appState.settings.defaultCheckIntervalSeconds) {
+                            ForEach(CheckIntervalOption.standardOptions) { option in
+                                Text(option.displayName).tag(option.seconds)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(FCDesign.ColorToken.quietSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: FCDesign.Radius.chip, style: .continuous))
                         }
+                        .labelsHidden()
+                        .frame(width: 120)
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Minimum Check Interval",
+                        description: "Safety clamp that prevents accidentally aggressive polling."
+                    ) {
+                        secondsField(value: $appState.settings.minimumCheckIntervalSeconds, placeholder: "5")
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Ping Timeout",
+                        description: "Maximum wait time before one ping probe is considered failed."
+                    ) {
+                        secondsField(value: $appState.settings.pingTimeoutSeconds, placeholder: "2")
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Ping Concurrency Limit",
+                        description: "Maximum number of ping checks that should run at the same time."
+                    ) {
+                        intField(value: $appState.settings.pingConcurrencyLimit, placeholder: "24")
+                    }
+
+                    preferenceDivider
+
+                    LTCPreferenceRow(
+                        title: "Warning Miss Count",
+                        description: "Consecutive failed checks before a device becomes Warning."
+                    ) {
+                        intField(value: $appState.settings.defaultWarningMissCount, placeholder: "1")
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Critical Miss Count",
+                        description: "Consecutive failed checks before a device becomes Critical."
+                    ) {
+                        intField(value: $appState.settings.defaultCriticalMissCount, placeholder: "3")
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Show In-App Critical Popups",
+                        description: appState.settings.showInAppCriticalPopups ? "Critical state transitions may open an acknowledgement alert." : "Critical state transitions will only appear in the dashboard."
+                    ) {
+                        Toggle("", isOn: $appState.settings.showInAppCriticalPopups)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
                     }
                 }
             }
 
-            preferenceCard(title: "Camera Feeds", subtitle: "Placeholder names for the Dashboard camera-feed panel. Video preview is not active yet.") {
-                HStack(spacing: 8) {
-                    TextField("New camera feed", text: $newCameraFeedName)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addCameraFeed() }
-
-                    Button { addCameraFeed() } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .disabled(newCameraFeedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-
-                if appState.settings.cameraFeedNames.isEmpty {
-                    Text("No camera feeds defined yet. Dashboard placeholders will use Camera 1, Camera 2, and Camera 3.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(appState.settings.cameraFeedNames, id: \.self) { camera in
-                            HStack(spacing: 8) {
-                                Image(systemName: "video.fill")
-                                    .foregroundStyle(FCDesign.ColorToken.active)
-                                    .frame(width: 18)
-                                Text(camera)
-                                    .font(.subheadline)
-                                Spacer()
-                                Button(role: .destructive) {
-                                    removeCameraFeed(camera)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
+            LTCPreferenceCard(
+                title: "Timecode Sources",
+                subtitle: "Source definitions for the Dashboard timecode placeholder. Inputs are not active yet.",
+                systemImage: "waveform.path.ecg.rectangle"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Selected Source",
+                        description: "The Dashboard Timecode Feed panel will display this source."
+                    ) {
+                        Picker("", selection: $appState.settings.selectedTimecodeSource) {
+                            Text("None").tag("")
+                            ForEach(appState.settings.timecodeSources, id: \.self) { source in
+                                Text(source).tag(source)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(FCDesign.ColorToken.quietSurface)
-                            .clipShape(RoundedRectangle(cornerRadius: FCDesign.Radius.chip, style: .continuous))
                         }
+                        .labelsHidden()
+                        .frame(width: 220)
                     }
+
+                    preferenceDivider
+
+                    HStack(spacing: 8) {
+                        TextField("New timecode source", text: $newTimecodeSourceName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addTimecodeSource() }
+
+                        Button { addTimecodeSource() } label: {
+                            Label("Add", systemImage: "plus")
+                        }
+                        .disabled(newTimecodeSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(.vertical, 7)
+
+                    sourceList(
+                        values: appState.settings.timecodeSources,
+                        emptyMessage: "No timecode sources defined yet.",
+                        symbol: "clock.badge",
+                        removeAction: removeTimecodeSource
+                    )
                 }
             }
 
+            LTCPreferenceCard(
+                title: "Camera Feeds",
+                subtitle: "Placeholder names for the Dashboard camera-feed panel. Video preview is not active yet.",
+                systemImage: "video.fill"
+            ) {
+                rowStack {
+                    HStack(spacing: 8) {
+                        TextField("New camera feed", text: $newCameraFeedName)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { addCameraFeed() }
 
-            preferenceCard(title: "Future Systems", subtitle: "Visible placeholders for planned Flight Control architecture.") {
-                preferenceRow(
-                    systemImage: "dot.radiowaves.left.and.right",
-                    title: "Deep Space Network Placeholder",
-                    subtitle: "Reserved for future reporting to Mission Control. No transmission occurs yet."
-                ) {
-                    Toggle("", isOn: $appState.settings.deepSpaceNetworkEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                        Button { addCameraFeed() } label: {
+                            Label("Add", systemImage: "plus")
+                        }
+                        .disabled(newCameraFeedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    .padding(.vertical, 7)
+
+                    sourceList(
+                        values: appState.settings.cameraFeedNames,
+                        emptyMessage: "No camera feeds defined yet. Dashboard placeholders will use Camera 1, Camera 2, and Camera 3.",
+                        symbol: "video.fill",
+                        removeAction: removeCameraFeed
+                    )
                 }
+            }
 
-                preferenceRow(
-                    systemImage: "point.3.connected.trianglepath.dotted",
-                    title: "Mission Control Endpoint",
-                    subtitle: "Future DSN endpoint. This value is stored but unused."
-                ) {
-                    TextField("Mission Control endpoint", text: $appState.settings.missionControlEndpoint)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 280)
-                }
+            LTCPreferenceCard(
+                title: "Future Systems",
+                subtitle: "Visible placeholders for planned Flight Control architecture.",
+                systemImage: "dot.radiowaves.left.and.right"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Deep Space Network Placeholder",
+                        description: "Reserved for future reporting to Mission Control. No transmission occurs yet."
+                    ) {
+                        Toggle("", isOn: $appState.settings.deepSpaceNetworkEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
 
-                preferenceRow(
-                    systemImage: "waveform.path.ecg.rectangle",
-                    title: "Timecode Integration Placeholder",
-                    subtitle: "Reserved for future LTC/MTC/SMPTE-related status correlation."
-                ) {
-                    Toggle("", isOn: $appState.settings.timecodeIntegrationEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    LTCPreferenceRow(
+                        title: "Mission Control Endpoint",
+                        description: "Future DSN endpoint. This value is stored but unused."
+                    ) {
+                        TextField("Mission Control endpoint", text: $appState.settings.missionControlEndpoint)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 260)
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Timecode Integration Placeholder",
+                        description: "Reserved for future LTC/MTC/SMPTE-related status correlation."
+                    ) {
+                        Toggle("", isOn: $appState.settings.timecodeIntegrationEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
                 }
             }
         }
@@ -524,46 +392,51 @@ struct PreferencesView: View {
 
     private var networkPane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            preferenceCard(title: "Network Interfaces", subtitle: "Interface inventory and monitoring interface behavior.") {
-                preferenceRow(
-                    systemImage: "network",
-                    title: "Interface Mode",
-                    subtitle: "Any Active Interface is recommended until per-protocol routing rules are added."
-                ) {
-                    Picker("", selection: $appState.settings.interfaceMode) {
-                        ForEach(InterfaceMonitoringMode.allCases) { mode in
-                            Text(mode.displayName).tag(mode)
+            LTCPreferenceCard(
+                title: "Network Interfaces",
+                subtitle: "Interface inventory and monitoring interface behavior.",
+                systemImage: "network"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Interface Mode",
+                        description: "Any Active Interface is recommended until per-protocol routing rules are added."
+                    ) {
+                        Picker("", selection: $appState.settings.interfaceMode) {
+                            ForEach(InterfaceMonitoringMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 210)
                     }
-                    .labelsHidden()
-                    .frame(width: 210)
-                }
 
-                preferenceRow(
-                    systemImage: "cable.connector",
-                    title: "Selected Interface",
-                    subtitle: "Used only when Interface Mode is set to Selected Interface."
-                ) {
-                    Picker("", selection: selectedInterfaceBinding) {
-                        Text("None").tag("")
+                    LTCPreferenceRow(
+                        title: "Selected Interface",
+                        description: "Used only when Interface Mode is set to Selected Interface."
+                    ) {
+                        Picker("", selection: selectedInterfaceBinding) {
+                            Text("None").tag("")
+                            ForEach(appState.networkInterfaces) { interface in
+                                Text("\(interface.displayName) — \(interface.detailDisplay)").tag(interface.name)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 360)
+                    }
+
+                    HStack {
+                        Spacer()
+                        Button("Refresh Interfaces") { appState.refreshNetworkInterfaces() }
+                    }
+                    .padding(.vertical, 6)
+
+                    preferenceDivider
+
+                    VStack(alignment: .leading, spacing: 10) {
                         ForEach(appState.networkInterfaces) { interface in
-                            Text("\(interface.displayName) — \(interface.detailDisplay)").tag(interface.name)
+                            networkInterfaceRow(interface)
                         }
-                    }
-                    .labelsHidden()
-                    .frame(width: 360)
-                }
-
-                HStack {
-                    Spacer()
-                    Button("Refresh Interfaces") { appState.refreshNetworkInterfaces() }
-                }
-
-                preferenceDivider
-
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(appState.networkInterfaces) { interface in
-                        networkInterfaceRow(interface)
                     }
                 }
             }
@@ -574,7 +447,7 @@ struct PreferencesView: View {
         HStack(spacing: 10) {
             Image(systemName: interface.isUp ? "checkmark.circle.fill" : "xmark.circle")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(interface.isUp ? FCDesign.ColorToken.good : .secondary)
+                .foregroundStyle(interface.isUp ? LTCDesign.ColorToken.healthy : .secondary)
                 .frame(width: 18)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -594,20 +467,26 @@ struct PreferencesView: View {
 
     private var importExportPane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            preferenceCard(title: "Import / Export", subtitle: "Reserved for future configuration transfer.") {
-                preferenceNotice(
-                    title: "Reserved for Future Configuration Transfer",
-                    message: "Flight Control is not importing or exporting project configurations yet. This pane is intentionally reserved for JSON configuration export, JSON import, and future CSV device inventory import.",
-                    symbol: "shippingbox",
-                    accent: FCDesign.ColorToken.active
-                )
+            LTCPreferenceCard(
+                title: "Import / Export",
+                subtitle: "Reserved for future configuration transfer.",
+                systemImage: "shippingbox"
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    preferenceNotice(
+                        title: "Reserved for Future Configuration Transfer",
+                        message: "Flight Control is not importing or exporting project configurations yet. This pane is intentionally reserved for JSON configuration export, JSON import, and future CSV device inventory import.",
+                        symbol: "shippingbox",
+                        accent: LTCDesign.ColorToken.accent
+                    )
 
-                HStack(spacing: 10) {
-                    Button("Export Configuration…") { }
-                        .disabled(true)
-                    Button("Import Configuration…") { }
-                        .disabled(true)
-                    Spacer(minLength: 0)
+                    HStack(spacing: 10) {
+                        Button("Export Configuration…") { }
+                            .disabled(true)
+                        Button("Import Configuration…") { }
+                            .disabled(true)
+                        Spacer(minLength: 0)
+                    }
                 }
             }
         }
@@ -617,45 +496,55 @@ struct PreferencesView: View {
 
     private var restorePane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            preferenceCard(title: "Persistence", subtitle: "Current local configuration storage.") {
-                preferenceRow(
-                    systemImage: "doc.text",
-                    title: "Configuration File",
-                    subtitle: "Flight Control stores its local project configuration here."
-                ) {
-                    Text(PersistenceService.snapshotURL.path)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: 420, alignment: .trailing)
-                }
+            LTCPreferenceCard(
+                title: "Persistence",
+                subtitle: "Current local configuration storage.",
+                systemImage: "doc.text"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Configuration File",
+                        description: "Flight Control stores its local project configuration here."
+                    ) {
+                        Text(PersistenceService.snapshotURL.path)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: 360, alignment: .trailing)
+                    }
 
-                if let error = appState.lastPersistenceError {
-                    preferenceDivider
-                    preferenceNotice(
-                        title: "Persistence Error",
-                        message: error,
-                        symbol: "exclamationmark.triangle.fill",
-                        accent: FCDesign.ColorToken.warning
-                    )
-                }
+                    if let error = appState.lastPersistenceError {
+                        preferenceDivider
+                        preferenceNotice(
+                            title: "Persistence Error",
+                            message: error,
+                            symbol: "exclamationmark.triangle.fill",
+                            accent: LTCDesign.ColorToken.warning
+                        )
+                    }
 
-                HStack(spacing: 10) {
-                    Button("Save Now") { appState.saveNow() }
-                    Button("Restore Defaults…") { }
-                        .disabled(true)
-                    Spacer(minLength: 0)
+                    HStack(spacing: 10) {
+                        Button("Save Now") { appState.saveNow() }
+                        Button("Restore Defaults…") { }
+                            .disabled(true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, 8)
                 }
             }
 
-            preferenceCard(title: "Restore Tools", subtitle: "Reserved for safer reset operations.") {
+            LTCPreferenceCard(
+                title: "Restore Tools",
+                subtitle: "Reserved for safer reset operations.",
+                systemImage: "arrow.counterclockwise"
+            ) {
                 preferenceNotice(
                     title: "Future Restore / Reset Tools",
                     message: "Restore tools are reserved for a future pass. Planned options include app defaults, project defaults, delete devices, delete groups, and restore from automatic backup — matching the safer reset pattern used by LCC.",
                     symbol: "arrow.counterclockwise",
-                    accent: FCDesign.ColorToken.active
+                    accent: LTCDesign.ColorToken.accent
                 )
             }
         }
@@ -663,92 +552,37 @@ struct PreferencesView: View {
 
     // MARK: - Shared Controls
 
-    private func preferenceCard<Content: View>(title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            sectionHeader(title: title, subtitle: subtitle)
-
-            VStack(alignment: .leading, spacing: 0) {
-                content()
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: FCDesign.Radius.inset, style: .continuous)
-                    .fill(FCDesign.ColorToken.textBackground.opacity(0.18))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: FCDesign.Radius.inset, style: .continuous)
-                    .strokeBorder(FCDesign.ColorToken.standardBorder, lineWidth: 1)
-            )
+    private func rowStack<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content()
         }
-        .padding(14)
-        .background(FCDesign.cardBackground())
-        .overlay(FCDesign.cardBorder())
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.headline)
-            Text(subtitle)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func preferenceRow<Control: View>(systemImage: String, title: String, subtitle: String, @ViewBuilder control: () -> Control) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(FCDesign.ColorToken.active)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 3) {
+    private func statusRow(title: String, value: String, description: String) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(LTCDesign.ColorToken.primaryText)
+                Text(description)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(LTCDesign.ColorToken.secondaryText)
+                    .lineLimit(2)
             }
-
-            Spacer(minLength: 12)
-
-            control()
-        }
-        .padding(.vertical, 9)
-    }
-
-    private func statusRow(systemImage: String, title: String, value: String, subtitle: String) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 12)
-
+            Spacer(minLength: 16)
             Text(value)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(LTCDesign.ColorToken.secondaryText)
         }
-        .padding(.vertical, 9)
+        .padding(.vertical, 5)
     }
 
     private var preferenceDivider: some View {
         Rectangle()
-            .fill(FCDesign.ColorToken.standardBorder)
+            .fill(LTCDesign.ColorToken.divider)
             .frame(height: 1)
-            .padding(.vertical, 4)
+            .padding(.vertical, 6)
     }
 
     private func preferenceNotice(title: String, message: String, symbol: String, accent: Color) -> some View {
@@ -761,9 +595,10 @@ struct PreferencesView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.body.weight(.semibold))
+                    .foregroundStyle(LTCDesign.ColorToken.primaryText)
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LTCDesign.ColorToken.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -771,13 +606,48 @@ struct PreferencesView: View {
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: FCDesign.Radius.inset, style: .continuous)
-                .fill(FCDesign.ColorToken.textBackground.opacity(0.18))
+            RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous)
+                .fill(LTCDesign.ColorToken.elevatedCardBackground)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: FCDesign.Radius.inset, style: .continuous)
-                .strokeBorder(FCDesign.ColorToken.standardBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous)
+                .strokeBorder(LTCDesign.ColorToken.border, lineWidth: 1)
         )
+    }
+
+    private func sourceList(values: [String], emptyMessage: String, symbol: String, removeAction: @escaping (String) -> Void) -> some View {
+        Group {
+            if values.isEmpty {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(values, id: \.self) { value in
+                        HStack(spacing: 8) {
+                            Image(systemName: symbol)
+                                .foregroundStyle(LTCDesign.ColorToken.accent)
+                                .frame(width: 18)
+                            Text(value)
+                                .font(.subheadline)
+                            Spacer()
+                            Button(role: .destructive) {
+                                removeAction(value)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(LTCDesign.ColorToken.elevatedCardBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous))
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
     }
 
     private func intField(value: Binding<Int>, placeholder: String) -> some View {
@@ -849,7 +719,7 @@ struct PreferencesView: View {
 
 // MARK: - Preference Pane Metadata
 
-private enum PreferencePane: String, CaseIterable, Identifiable {
+private enum PreferencePane: String, CaseIterable, Identifiable, Hashable {
     case app
     case project
     case network
@@ -859,6 +729,16 @@ private enum PreferencePane: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
+        switch self {
+        case .app: return "App Preferences"
+        case .project: return "Project Preferences"
+        case .network: return "Network Preferences"
+        case .importExport: return "Import / Export"
+        case .restore: return "Restore"
+        }
+    }
+
+    var sidebarTitle: String {
         switch self {
         case .app: return "App"
         case .project: return "Project"
@@ -892,4 +772,17 @@ private enum PreferencePane: String, CaseIterable, Identifiable {
         case .restore: return "arrow.counterclockwise"
         }
     }
+}
+
+// MARK: - LunarKit Identity
+
+private extension LTCAppIdentity {
+    static let flightControlPreferences = LTCAppIdentity(
+        initials: "FC",
+        displayName: "Flight Control",
+        headerTitle: "FLIGHT CONTROL",
+        appIconName: "AppIcon",
+        companyIconName: "LTCIcon",
+        companyLogoName: "LTCLogo"
+    )
 }

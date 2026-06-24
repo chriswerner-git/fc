@@ -5,7 +5,7 @@
 //  └─────────────────────────────────────────────────────────────┘
 //
 //  File: StartupStatusPanel.swift
-//  Purpose: Non-blocking startup panel matching the LTC utility-app pattern.
+//  Purpose: Non-blocking startup panel using LunarKit shared layout.
 //
 //  Created by Chris Werner / Lunar Telephone Company.
 //  © 2026 Lunar Telephone Company. All rights reserved.
@@ -15,6 +15,7 @@
 
 import AppKit
 import SwiftUI
+import LunarKit
 
 final class StartupStatusPanelController {
     static let shared = StartupStatusPanelController()
@@ -48,7 +49,7 @@ final class StartupStatusPanelController {
 
         let hostingView = NSHostingView(rootView: contentView)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 570),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 430),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -83,131 +84,79 @@ private struct StartupStatusPanelView: View {
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            header
-            startupDivider
-            centeredLTCLogo
-            statusGrid
-            footer
-        }
-        .padding(24)
-        .frame(width: 600, height: 570)
-        .background(FCDesign.screenBackground())
-    }
+        VStack(spacing: 14) {
+            LTCStartupPanelShell(
+                identity: flightControlIdentity,
+                version: appVersion,
+                build: appBuild,
+                projectName: projectDisplayName,
+                statusItems: statusItems
+            )
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 18) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 74, height: 74)
-                .accessibilityLabel("Flight Control app icon")
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Flight Control is starting local monitoring services.")
+                        .font(LTCDesign.FontToken.cardCaption)
+                        .foregroundStyle(LTCDesign.ColorToken.secondaryText)
 
-            VStack(alignment: .leading, spacing: 7) {
-                Text(FCLayout.appNameDisplay)
-                    .font(.system(size: 30, weight: .bold))
-                    .tracking(2.0)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
+                    Text("No Deep Space Network transmission occurs in this build.")
+                        .font(.caption2)
+                        .foregroundStyle(LTCDesign.ColorToken.tertiaryText)
+                }
 
-                Text(AppInfo.versionBuildDisplay)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Spacer()
+
+                Button("Dismiss") { dismiss() }
+                    .controlSize(.small)
             }
-
-            Spacer()
+            .frame(width: 520)
         }
+        .padding(20)
+        .background(LTCDesign.ColorToken.windowBackground)
     }
 
-    private var centeredLTCLogo: some View {
-        Image("LTCLogo")
-            .resizable()
-            .scaledToFit()
-            .frame(height: 88)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, 6)
-            .accessibilityLabel("Lunar Telephone Company logo")
-    }
-
-    private var statusGrid: some View {
-        VStack(spacing: 0) {
-            StartupStatusRow(
-                icon: "folder",
-                title: "Project",
-                value: projectDisplayName,
-                color: FCDesign.ColorToken.active
-            )
-
-            startupDivider
-
-            StartupStatusRow(
-                icon: appState.monitoringRunning ? "checkmark.circle.fill" : "pause.circle",
+    private var statusItems: [LTCStartupStatusItem] {
+        [
+            LTCStartupStatusItem(
                 title: "Monitoring",
-                value: appState.monitoringRunning ? "Monitoring active" : "Monitoring paused",
-                color: appState.monitoringRunning ? FCDesign.ColorToken.good : FCDesign.ColorToken.warning
-            )
-
-            startupDivider
-
-            StartupStatusRow(
-                icon: appState.overallHealth.systemImageName,
+                value: appState.monitoringRunning ? "Active" : "Paused",
+                severity: appState.monitoringRunning ? .healthy : .warning
+            ),
+            LTCStartupStatusItem(
                 title: "System Health",
                 value: appState.overallHealth.displayName,
-                color: appState.overallHealth.color
+                severity: severity(for: appState.overallHealth.displayName)
+            ),
+            LTCStartupStatusItem(
+                title: "Devices",
+                value: "\(appState.enabledDeviceCount) / \(appState.devices.count)",
+                severity: appState.enabledDeviceCount > 0 ? .healthy : .unknown
+            ),
+            LTCStartupStatusItem(
+                title: "Network Interfaces",
+                value: "\(appState.networkInterfaces.count)",
+                severity: appState.networkInterfaces.isEmpty ? .warning : .healthy
+            ),
+            LTCStartupStatusItem(
+                title: "Sleep Prevention",
+                value: appState.settings.preventSleep ? "Enabled" : "System Default",
+                severity: appState.settings.preventSleep ? .healthy : .unknown
             )
-
-            startupDivider
-
-            HStack(spacing: 0) {
-                StartupStatusMetric(
-                    icon: "network",
-                    title: "Devices",
-                    value: "\(appState.enabledDeviceCount) / \(appState.devices.count)",
-                    color: FCDesign.ColorToken.active
-                )
-
-                startupDividerVertical
-
-                StartupStatusMetric(
-                    icon: "cable.connector",
-                    title: "NICs",
-                    value: "\(appState.networkInterfaces.count)",
-                    color: FCDesign.ColorToken.active
-                )
-
-                startupDividerVertical
-
-                StartupStatusMetric(
-                    icon: appState.settings.preventSleep ? "moon.zzz.fill" : "moon.zzz",
-                    title: "Sleep",
-                    value: appState.settings.preventSleep ? "Prevented" : "System Default",
-                    color: appState.settings.preventSleep ? FCDesign.ColorToken.good : .secondary
-                )
-            }
-            .frame(height: 74)
-        }
-        .background(FCDesign.cardBackground(cornerRadius: 18))
-        .overlay(FCDesign.cardBorder(cornerRadius: 18))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        ]
     }
 
-    private var footer: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Flight Control is starting local monitoring services.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("No Deep Space Network transmission occurs in this build.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Spacer()
-
-            Button("Dismiss") { dismiss() }
-                .controlSize(.small)
+    private func severity(for displayName: String) -> LTCStatusSeverity {
+        switch displayName.lowercased() {
+        case let value where value.contains("healthy"):
+            return .healthy
+        case let value where value.contains("warning"):
+            return .warning
+        case let value where value.contains("critical"):
+            return .critical
+        case let value where value.contains("disabled"):
+            return .disabled
+        default:
+            return .unknown
         }
     }
 
@@ -216,69 +165,22 @@ private struct StartupStatusPanelView: View {
         return trimmed.isEmpty ? "Flight Control" : trimmed
     }
 
-    private var startupDivider: some View {
-        Rectangle()
-            .fill(FCDesign.ColorToken.strongBorder)
-            .frame(height: 1)
+    private var flightControlIdentity: LTCAppIdentity {
+        LTCAppIdentity(
+            initials: "FC",
+            displayName: "Flight Control",
+            headerTitle: "FLIGHT CONTROL",
+            appIconName: "AppIcon",
+            companyIconName: "LTCIcon",
+            companyLogoName: "LTCLogo"
+        )
     }
 
-    private var startupDividerVertical: some View {
-        Rectangle()
-            .fill(FCDesign.ColorToken.strongBorder)
-            .frame(width: 1)
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
     }
-}
 
-private struct StartupStatusRow: View {
-    let icon: String
-    let title: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(color)
-                .frame(width: 24)
-
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 118, alignment: .leading)
-
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 54)
-    }
-}
-
-private struct StartupStatusMetric: View {
-    let icon: String
-    let title: String
-    let value: String
-    let color: Color
-
-    var body: some View {
-        VStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(color)
-
-            Text(value)
-                .font(.title3.weight(.semibold))
-                .monospacedDigit()
-
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    private var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
     }
 }

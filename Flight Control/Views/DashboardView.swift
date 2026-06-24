@@ -18,6 +18,7 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import LunarKit
 
 struct DashboardView: View {
     @EnvironmentObject private var appState: AppState
@@ -59,22 +60,17 @@ struct DashboardView: View {
 
     private var clockAndSummary: some View {
         TimelineView(.periodic(from: Date(), by: 1)) { context in
-            ZStack(alignment: .bottomLeading) {
-                clockDisplay(for: context.date)
-
-                lowerLeftDiagnostics
-                    .frame(maxWidth: .infinity, alignment: .bottomLeading)
-
+            LTCDashboardClockPanel(
+                projectName: projectDisplayName,
+                currentDate: context.date,
+                computerUptime: computerUptimeDisplay,
+                appUptime: appState.uptimeDisplay,
+                aboutButtonTitle: "About FC",
+                aboutAction: { openWindow(id: "about-window") }
+            ) {
                 futureLinkStatus
-                    .frame(maxWidth: .infinity, alignment: .bottomTrailing)
             }
-            .padding(.vertical, FCLayout.Dashboard.clockPanelVerticalPadding)
-            .padding(.horizontal, FCLayout.Dashboard.clockPanelHorizontalPadding)
-            .background(FCDesign.cardBackground(cornerRadius: 20))
-            .overlay(FCDesign.cardBorder(cornerRadius: 20))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .frame(height: FCLayout.Dashboard.clockPanelHeight)
     }
 
     private func clockDisplay(for date: Date) -> some View {

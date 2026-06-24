@@ -14,6 +14,7 @@
 //
 
 import SwiftUI
+import LunarKit
 
 enum FCLayout {
     static let appName = "Flight Control"
@@ -106,79 +107,31 @@ struct FCScreen<Content: View>: View {
     }
 
     var body: some View {
-        VStack(spacing: FCLayout.TopChrome.verticalSpacing) {
-            appNameChrome
-            divider
-            pageHeader
+        LTCWindowChrome(
+            identity: .flightControl,
+            windowName: displayTitle,
+            heading: displayTitle,
+            description: subtitle,
+            iconSystemName: resolvedSystemImage,
+            showsHelpButton: showHelpButton,
+            helpAction: showHelpButton ? { openWindow(id: "help-window") } : nil
+        ) {
             content
         }
-        .padding(FCLayout.Spacing.screenPadding)
-        .background(FCDesign.screenBackground().ignoresSafeArea())
-    }
-
-    private var appNameChrome: some View {
-        ZStack {
-            Text(FCLayout.appNameDisplay)
-                .font(.system(
-                    size: FCLayout.TopChrome.appNameFontSize,
-                    weight: FCLayout.TopChrome.appNameFontWeight
-                ))
-                .tracking(FCLayout.TopChrome.appNameTracking)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Spacer()
-                if showHelpButton {
-                    Button { openWindow(id: "help-window") } label: {
-                        Image(systemName: "questionmark.circle")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .frame(width: FCLayout.TopChrome.helpButtonSize, height: FCLayout.TopChrome.helpButtonSize)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Open Flight Control Help")
-                }
-            }
-        }
-        .frame(height: 24)
-    }
-
-    private var divider: some View {
-        Rectangle()
-            .fill(FCDesign.ColorToken.strongBorder)
-            .frame(height: FCLayout.TopChrome.dividerHeight)
-    }
-
-    private var pageHeader: some View {
-        HStack(alignment: .center, spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(FCDesign.ColorToken.active.opacity(0.18))
-                    .frame(width: FCLayout.TopChrome.headerIconSize, height: FCLayout.TopChrome.headerIconSize)
-
-                Image(systemName: resolvedSystemImage)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(FCDesign.ColorToken.active)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayTitle)
-                    .font(.system(size: 28, weight: .bold, design: .default))
-                    .foregroundStyle(.primary)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 4)
-        .padding(.bottom, 10)
     }
 }
+
+private extension LTCAppIdentity {
+    static let flightControl = LTCAppIdentity(
+        initials: FCLayout.headerPrefix,
+        displayName: FCLayout.appName,
+        headerTitle: FCLayout.appNameDisplay,
+        appIconName: "AppIcon",
+        companyIconName: "LTCIcon",
+        companyLogoName: "LTCLogo"
+    )
+}
+
 
 struct FCCard<Content: View>: View {
     let content: Content
