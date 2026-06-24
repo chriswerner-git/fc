@@ -79,7 +79,9 @@ struct PreferencesView: View {
                 id: $0,
                 title: $0.title,
                 subtitle: $0.subtitle,
-                systemImage: $0.systemImage
+                systemImage: $0.systemImage,
+                sidebarTitle: $0.sidebarTitle,
+                detailTitle: $0.title
             )
         }
     }
@@ -105,42 +107,49 @@ struct PreferencesView: View {
     private var appPane: some View {
         VStack(alignment: .leading, spacing: 16) {
             LTCPreferenceCard(
-                title: "App Runtime",
-                subtitle: "Controls local application behavior.",
-                systemImage: "app.badge"
+                title: "Time Preferences",
+                subtitle: "Clock and timestamp display settings.",
+                systemImage: "clock"
             ) {
                 rowStack {
                     LTCPreferenceRow(
-                        title: "Monitoring Enabled",
-                        description: appState.settings.monitoringEnabled ? "Flight Control is actively evaluating due device checks." : "Monitoring is paused. Device state will not update."
+                        title: "Time Format",
+                        description: "Used by clocks, timestamps, and date-sensitive dashboard text."
                     ) {
-                        Toggle("", isOn: $appState.settings.monitoringEnabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
+                        LTCTimeFormatPicker(selection: timeFormatBinding)
                     }
+                }
+            }
 
-                    preferenceDivider
-
+            LTCPreferenceCard(
+                title: "Runtime Preferences",
+                subtitle: "Local launch, sleep, startup, and logging behavior.",
+                systemImage: "power"
+            ) {
+                rowStack {
                     LTCPreferenceRow(
-                        title: "Launch App at Startup",
-                        description: LoginStartupService.status.helpText
+                        title: "Launch at Startup",
+                        description: "Open Flight Control automatically after login when supported by this build."
                     ) {
                         Toggle("", isOn: $appState.settings.launchAtLogin)
                             .labelsHidden()
                             .toggleStyle(.switch)
                     }
 
-                    statusRow(
-                        title: "Launch at Startup Status",
-                        value: LoginStartupService.status.displayName,
-                        description: "macOS controls whether unsigned development builds can be registered as login items."
-                    )
-
                     LTCPreferenceRow(
-                        title: "Prevent System Sleep While Monitoring",
-                        description: appState.settings.preventSleep ? "Flight Control will request an idle sleep assertion while monitoring is enabled." : "The computer may sleep according to macOS Energy settings."
+                        title: "Prevent System Sleep",
+                        description: appState.settings.preventSleep ? "Request idle sleep prevention while monitoring is enabled." : "Allow macOS sleep settings to apply normally."
                     ) {
                         Toggle("", isOn: $appState.settings.preventSleep)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Show Startup Panel",
+                        description: "Show a brief status panel when Flight Control launches."
+                    ) {
+                        Toggle("", isOn: $appState.settings.showStartupPanel)
                             .labelsHidden()
                             .toggleStyle(.switch)
                     }
@@ -157,28 +166,39 @@ struct PreferencesView: View {
                     }
 
                     LTCPreferenceRow(
-                        title: "Status Retention",
-                        description: "Default is 30 days. Older status events are pruned during saves."
+                        title: "Retention Days",
+                        description: "Number of days to retain status history."
                     ) {
-                        HStack(spacing: 6) {
-                            TextField("30", value: $appState.settings.retentionDays, format: .number.grouping(.never))
-                                .textFieldStyle(.roundedBorder)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 72)
-                            Text("days")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                        TextField("30", text: retentionDaysTextBinding)
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 90)
                     }
                 }
             }
 
-            if let error = appState.lastRuntimePreferenceError {
-                preferenceNotice(
+            LTCPreferenceCard(
+                title: "Monitoring Preferences",
+                subtitle: "Global monitoring runtime state.",
+                systemImage: "waveform.path.ecg"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Monitoring Enabled",
+                        description: appState.settings.monitoringEnabled ? "Flight Control is actively evaluating due device checks." : "Monitoring is paused. Device state will not update."
+                    ) {
+                        Toggle("", isOn: $appState.settings.monitoringEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+                }
+            }
+
+            if let error = visibleRuntimePreferenceError {
+                LTCAlertBanner(
                     title: "Runtime Preference Error",
                     message: error,
-                    symbol: "exclamationmark.triangle.fill",
-                    accent: LTCDesign.ColorToken.warning
+                    level: .warning
                 )
             }
         }
@@ -188,31 +208,7 @@ struct PreferencesView: View {
 
     private var projectPane: some View {
         VStack(alignment: .leading, spacing: 16) {
-            LTCPreferenceCard(
-                title: "Project Identity",
-                subtitle: "Shown on the Dashboard clock panel and future reports.",
-                systemImage: "folder"
-            ) {
-                rowStack {
-                    LTCPreferenceRow(
-                        title: "Project Name",
-                        description: "Optional. Leave blank to show Flight Control."
-                    ) {
-                        TextField("Flight Control", text: $appState.settings.projectName)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 240)
-                    }
-
-                    LTCPreferenceRow(
-                        title: "Project Location",
-                        description: "Used by the Dashboard weather placeholder. Weather integration is planned."
-                    ) {
-                        TextField("City, State / Venue / Site", text: $appState.settings.projectLocation)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 240)
-                    }
-                }
-            }
+            projectInformationCard
 
             LTCPreferenceCard(
                 title: "Monitoring Defaults",
@@ -388,6 +384,53 @@ struct PreferencesView: View {
         }
     }
 
+private var projectInformationCard: some View {
+        LTCPreferenceCard(
+            title: "Project Information",
+            subtitle: "Basic identity and location fields.",
+            systemImage: "folder.fill"
+        ) {
+            rowStack {
+                LTCPreferenceRow(
+                    title: "Project Name",
+                    description: "Shown on dashboards and startup panels."
+                ) {
+                    TextField("Project name", text: $appState.settings.projectName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 300)
+                }
+
+                LTCPreferenceRow(
+                    title: "Project Location",
+                    description: "Friendly label, such as Los Angeles, CA."
+                ) {
+                    TextField("City, State or venue", text: $appState.settings.projectLocation)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 300)
+                }
+
+                LTCPreferenceRow(
+                    title: "Weather Source",
+                    description: "ZIP, METAR station, or coordinates."
+                ) {
+                    TextField("ZIP, METAR, or coordinates", text: $appState.settings.projectWeatherSource)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 300)
+                }
+
+                LTCPreferenceRow(
+                    title: "Project Notes",
+                    description: "Optional local project notes."
+                ) {
+                    TextField("Project notes", text: $appState.settings.projectNotes, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(2...5)
+                        .frame(width: 300)
+                }
+            }
+        }
+    }
+
     // MARK: - Network Pane
 
     private var networkPane: some View {
@@ -413,7 +456,7 @@ struct PreferencesView: View {
 
                     LTCPreferenceRow(
                         title: "Selected Interface",
-                        description: "Used only when Interface Mode is set to Selected Interface."
+                        description: "Used only with Selected Interface mode."
                     ) {
                         Picker("", selection: selectedInterfaceBinding) {
                             Text("None").tag("")
@@ -422,7 +465,7 @@ struct PreferencesView: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(width: 360)
+                        .frame(width: 280)
                     }
 
                     HStack {
@@ -433,11 +476,8 @@ struct PreferencesView: View {
 
                     preferenceDivider
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(appState.networkInterfaces) { interface in
-                            networkInterfaceRow(interface)
-                        }
-                    }
+                    LTCNetworkInterfaceGrid(interfaces: ltcNetworkInterfaces, maxVisible: 12)
+                        .padding(.top, 4)
                 }
             }
         }
@@ -466,28 +506,29 @@ struct PreferencesView: View {
     // MARK: - Import / Export Pane
 
     private var importExportPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            LTCPreferenceCard(
-                title: "Import / Export",
-                subtitle: "Reserved for future configuration transfer.",
-                systemImage: "shippingbox"
-            ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    preferenceNotice(
-                        title: "Reserved for Future Configuration Transfer",
-                        message: "Flight Control is not importing or exporting project configurations yet. This pane is intentionally reserved for JSON configuration export, JSON import, and future CSV device inventory import.",
-                        symbol: "shippingbox",
-                        accent: LTCDesign.ColorToken.accent
-                    )
+        LTCImportExportShell {
+            VStack(alignment: .leading, spacing: 10) {
+                LTCAlertBanner(
+                    title: "Reserved for Future Configuration Transfer",
+                    message: "Flight Control is not importing or exporting project configurations yet. This pane is intentionally reserved for JSON configuration export, JSON import, and future CSV device inventory import.",
+                    level: .info
+                )
 
-                    HStack(spacing: 10) {
-                        Button("Export Configuration…") { }
-                            .disabled(true)
-                        Button("Import Configuration…") { }
-                            .disabled(true)
-                        Spacer(minLength: 0)
-                    }
-                }
+                LTCPreferenceActionRow(
+                    title: "Export Configuration",
+                    description: "Future tool for saving a project configuration bundle.",
+                    systemImage: "square.and.arrow.up",
+                    buttonTitle: "Export…",
+                    level: .inactive
+                ) { }
+
+                LTCPreferenceActionRow(
+                    title: "Import Configuration",
+                    description: "Future tool for importing and validating a saved configuration.",
+                    systemImage: "square.and.arrow.down",
+                    buttonTitle: "Import…",
+                    level: .inactive
+                ) { }
             }
         }
     }
@@ -495,57 +536,60 @@ struct PreferencesView: View {
     // MARK: - Restore Pane
 
     private var restorePane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            LTCPreferenceCard(
-                title: "Persistence",
-                subtitle: "Current local configuration storage.",
-                systemImage: "doc.text"
-            ) {
-                rowStack {
-                    LTCPreferenceRow(
-                        title: "Configuration File",
-                        description: "Flight Control stores its local project configuration here."
-                    ) {
+        LTCRestoreDefaultsShell {
+            VStack(alignment: .leading, spacing: 10) {
+                LTCPreferenceActionRow(
+                    title: "Save Current Configuration",
+                    description: "Immediately writes the current Flight Control configuration to local persistence.",
+                    systemImage: "externaldrive.fill",
+                    buttonTitle: "Save Now",
+                    level: .info
+                ) {
+                    appState.saveNow()
+                }
+
+                LTCPreferenceActionRow(
+                    title: "Restore App Defaults",
+                    description: "Future tool for restoring app-level preferences without deleting project inventory.",
+                    systemImage: "arrow.counterclockwise",
+                    buttonTitle: "Restore…",
+                    level: .inactive
+                ) { }
+
+                LTCPreferenceActionRow(
+                    title: "Restore Project Defaults",
+                    description: "Future tool for restoring project-level defaults after confirmation.",
+                    systemImage: "folder.badge.gearshape",
+                    buttonTitle: "Restore…",
+                    level: .inactive
+                ) { }
+
+                LTCPreferenceActionRow(
+                    title: "Delete Devices and Groups",
+                    description: "Future destructive reset for inventory data. This will require confirmation before activation.",
+                    systemImage: "trash.fill",
+                    buttonTitle: "Delete…",
+                    level: .critical
+                ) { }
+
+                LTCPreferenceCard(
+                    title: "Configuration File",
+                    subtitle: "Current local configuration storage.",
+                    systemImage: "doc.text"
+                ) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(PersistenceService.snapshotURL.path)
                             .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(LTCDesign.ColorToken.secondaryText)
                             .lineLimit(2)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
-                            .frame(maxWidth: 360, alignment: .trailing)
-                    }
 
-                    if let error = appState.lastPersistenceError {
-                        preferenceDivider
-                        preferenceNotice(
-                            title: "Persistence Error",
-                            message: error,
-                            symbol: "exclamationmark.triangle.fill",
-                            accent: LTCDesign.ColorToken.warning
-                        )
+                        if let error = appState.lastPersistenceError {
+                            LTCAlertBanner(title: "Persistence Error", message: error, level: .warning)
+                        }
                     }
-
-                    HStack(spacing: 10) {
-                        Button("Save Now") { appState.saveNow() }
-                        Button("Restore Defaults…") { }
-                            .disabled(true)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.top, 8)
                 }
-            }
-
-            LTCPreferenceCard(
-                title: "Restore Tools",
-                subtitle: "Reserved for safer reset operations.",
-                systemImage: "arrow.counterclockwise"
-            ) {
-                preferenceNotice(
-                    title: "Future Restore / Reset Tools",
-                    message: "Restore tools are reserved for a future pass. Planned options include app defaults, project defaults, delete devices, delete groups, and restore from automatic backup — matching the safer reset pattern used by LCC.",
-                    symbol: "arrow.counterclockwise",
-                    accent: LTCDesign.ColorToken.accent
-                )
             }
         }
     }
@@ -707,6 +751,70 @@ struct PreferencesView: View {
     private func removeCameraFeed(_ camera: String) {
         appState.settings.cameraFeedNames.removeAll { $0.caseInsensitiveCompare(camera) == .orderedSame }
         appState.applySettings()
+    }
+
+    private var timeFormatBinding: Binding<LTCTimeFormat> {
+        Binding(
+            get: { LTCTimeFormat(rawValue: appState.settings.timeFormatRawValue) ?? .twentyFourHour },
+            set: { newValue in
+                appState.settings.timeFormatRawValue = newValue.rawValue
+                appState.applySettings()
+            }
+        )
+    }
+
+    private var retentionDaysTextBinding: Binding<String> {
+        Binding(
+            get: { String(appState.settings.retentionDays) },
+            set: { newValue in
+                let filtered = newValue.filter { $0.isNumber }
+                if let value = Int(filtered) {
+                    appState.settings.retentionDays = min(max(1, value), 365)
+                } else if newValue.isEmpty {
+                    appState.settings.retentionDays = 30
+                }
+            }
+        )
+    }
+
+    private var visibleRuntimePreferenceError: String? {
+        guard let error = appState.lastRuntimePreferenceError?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty else { return nil }
+
+        let lowercased = error.lowercased()
+        if lowercased.contains("operation not permitted") || lowercased.contains("not find an app bundle") {
+            return nil
+        }
+
+        return error
+    }
+
+    private var ltcNetworkInterfaces: [LTCNetworkInterfaceDisplayInfo] {
+        var mapped = appState.networkInterfaces.map { interface in
+            LTCNetworkInterfaceDisplayInfo(
+                friendlyName: interface.displayName,
+                interfaceID: interface.name,
+                isActive: interface.isUp,
+                ipv4Address: interface.ipv4Addresses.first,
+                cidrPrefix: interface.primaryCIDRPrefix.flatMap { Int($0.replacingOccurrences(of: "/", with: "")) },
+                detailLines: interface.detailDisplay.components(separatedBy: "\n")
+            )
+        }
+
+        if !mapped.contains(where: { $0.interfaceID == "lo0" }) {
+            mapped.insert(
+                LTCNetworkInterfaceDisplayInfo(
+                    friendlyName: "Local Loopback",
+                    interfaceID: "lo0",
+                    isActive: true,
+                    ipv4Address: "127.0.0.1",
+                    cidrPrefix: 8,
+                    detailLines: ["IPv4: 127.0.0.1 /8", "Purpose: Local host loopback"]
+                ),
+                at: 0
+            )
+        }
+
+        return mapped
     }
 
     private var selectedInterfaceBinding: Binding<String> {

@@ -80,6 +80,10 @@ struct CheckIntervalOption: Identifiable, Hashable {
 struct MonitoringSettings: Codable, Hashable {
     var projectName: String = "Flight Control"
     var projectLocation: String = ""
+    var projectWeatherSource: String = ""
+    var projectNotes: String = ""
+    var timeFormatRawValue: String = "twentyFourHour"
+    var showStartupPanel: Bool = true
     var monitoringEnabled: Bool = true
     var defaultCheckIntervalSeconds: TimeInterval = 60
     var minimumCheckIntervalSeconds: TimeInterval = 5
@@ -107,6 +111,10 @@ struct MonitoringSettings: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case projectName
         case projectLocation
+        case projectWeatherSource
+        case projectNotes
+        case timeFormatRawValue
+        case showStartupPanel
         case monitoringEnabled
         case defaultCheckIntervalSeconds
         case minimumCheckIntervalSeconds
@@ -136,6 +144,10 @@ struct MonitoringSettings: Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         projectName = try container.decodeIfPresent(String.self, forKey: .projectName) ?? "Flight Control"
         projectLocation = try container.decodeIfPresent(String.self, forKey: .projectLocation) ?? ""
+        projectWeatherSource = try container.decodeIfPresent(String.self, forKey: .projectWeatherSource) ?? ""
+        projectNotes = try container.decodeIfPresent(String.self, forKey: .projectNotes) ?? ""
+        timeFormatRawValue = try container.decodeIfPresent(String.self, forKey: .timeFormatRawValue) ?? "twentyFourHour"
+        showStartupPanel = try container.decodeIfPresent(Bool.self, forKey: .showStartupPanel) ?? true
         monitoringEnabled = try container.decodeIfPresent(Bool.self, forKey: .monitoringEnabled) ?? true
         defaultCheckIntervalSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .defaultCheckIntervalSeconds) ?? 60
         minimumCheckIntervalSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .minimumCheckIntervalSeconds) ?? 5
@@ -172,6 +184,9 @@ struct MonitoringSettings: Codable, Hashable {
 
         projectName = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
         projectLocation = projectLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+        projectWeatherSource = projectWeatherSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        projectNotes = projectNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if timeFormatRawValue != "twelveHour" && timeFormatRawValue != "twentyFourHour" { timeFormatRawValue = "twentyFourHour" }
 
         var cleanedSources: [String] = []
         for source in timecodeSources.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) where !source.isEmpty {
