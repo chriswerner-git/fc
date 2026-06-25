@@ -911,6 +911,10 @@ private var projectInformationCard: some View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(LTCDesign.ColorToken.secondaryText)
 
+            Text("Decoder: libltc")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(LTCDesign.ColorToken.secondaryText)
+
             Spacer(minLength: 8)
 
             Text(state?.message ?? "Select an Audio LTC source and input device to begin level monitoring.")
@@ -942,7 +946,7 @@ private var projectInformationCard: some View {
             if source.inputSourceID.isEmpty {
                 return "Choose a macOS audio input device such as Dante Virtual Soundcard. Level monitoring starts after a selected Audio LTC source has an input device."
             }
-            return "Audio LTC input device is selected. Flight Control now monitors signal level; SMPTE LTC decoding comes next."
+            return "Audio LTC input device is selected. Flight Control decodes SMPTE LTC using the libltc backend."
         case .simulated:
             return "Simulated sources are useful for dashboard and rule testing before live LTC decoding is active."
         case .midiTimecode, .networkTimecode:

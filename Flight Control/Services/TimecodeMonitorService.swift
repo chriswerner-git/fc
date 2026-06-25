@@ -23,6 +23,7 @@ final class TimecodeMonitorService: NSObject {
     private var timer: Timer?
     private var sources: [TimecodeSourceConfiguration] = []
     private var audioLevelStates: [UUID: TimecodeAudioLevelState] = [:]
+    private var lastDecodedSnapshots: [UUID: LastDecodedTimecodeSnapshot] = [:]
 
     func configure(sources: [TimecodeSourceConfiguration]) {
         self.sources = sources
@@ -36,11 +37,23 @@ final class TimecodeMonitorService: NSObject {
 
     func updateAudioLevelState(_ state: TimecodeAudioLevelState) {
         audioLevelStates[state.sourceID] = state
+
+        if let text = state.decodedTimecodeText,
+           let decodedAt = state.decodedAt {
+            lastDecodedSnapshots[state.sourceID] = LastDecodedTimecodeSnapshot(
+                timecodeText: text,
+                frameRate: state.decodedFrameRate,
+                decodedAt: decodedAt,
+                message: state.decoderMessage
+            )
+        }
+
         publishCurrentStates()
     }
 
     func clearAudioLevelStates() {
         audioLevelStates.removeAll()
+        lastDecodedSnapshots.removeAll()
         publishCurrentStates()
     }
 
@@ -128,56 +141,55 @@ final class TimecodeMonitorService: NSObject {
             let signalPresent = (levelState?.signalPresent == true) && captureIsFresh
             let captureRunning = (levelState?.isCaptureRunning == true) && captureIsFresh
 
-            let decodedAge = levelState?.decodedAt.map { date.timeIntervalSince($0) } ?? .infinity
+            let snapshot = lastDecodedSnapshots[source.id]
+            let effectiveDecodedText = levelState?.decodedTimecodeText ?? snapshot?.timecodeText
+            let effectiveDecodedFrameRate = levelState?.decodedFrameRate ?? snapshot?.frameRate
+            let effectiveDecodedAt = levelState?.decodedAt ?? snapshot?.decodedAt
+            let decodedAge = effectiveDecodedAt.map { date.timeIntervalSince($0) } ?? .infinity
 
-            // The first native decoder may not deliver every LTC frame yet,
-            // especially with virtual/multichannel input devices. For a monitoring
-            // dashboard, a recently decoded frame plus continuing audio signal is
-            // enough to keep the displayed clock running for a short smoothing
-            // window. This prevents rapid green/orange flicker while still allowing
-            // stale/lost alerts to fire when valid LTC disappears.
+            // The native decoder may not deliver every LTC frame yet, especially
+            // with virtual/multichannel input devices. For dashboard monitoring,
+            // a recently decoded frame plus continuing audio signal is enough to
+            // keep the displayed clock running for a short smoothing window.
             let smoothingWindow = min(
                 source.lostTimeoutSeconds,
                 max(1.75, source.staleTimeoutSeconds * 3.0)
             )
-            let decodedIsAvailable = levelState?.decodedTimecodeText != nil
+
+            let hasCurrentDecode = levelState?.decodedTimecodeText != nil
+            let decodedIsAvailable = effectiveDecodedText != nil
             let lostHoldDuration: TimeInterval = 120.0
-            let decodedIsRunning = decodedIsAvailable && decodedAge <= smoothingWindow && signalPresent
-            let decodedIsStale = decodedIsAvailable && decodedAge > smoothingWindow && decodedAge <= source.lostTimeoutSeconds
-            let decodedIsHeldAfterLoss = decodedIsAvailable && decodedAge > source.lostTimeoutSeconds && decodedAge <= (source.lostTimeoutSeconds + lostHoldDuration)
-            let decodedIsLost = decodedAge > source.lostTimeoutSeconds
+            let decodedIsRunning = hasCurrentDecode && decodedAge <= smoothingWindow && signalPresent
+            let decodedIsStale = decodedIsAvailable && signalPresent && decodedAge > smoothingWindow && decodedAge <= source.lostTimeoutSeconds
+            let decodedIsHeldAfterLoss = decodedIsAvailable && signalPresent == false && decodedAge <= (source.lostTimeoutSeconds + lostHoldDuration)
 
             let runState: TimecodeRunState = {
                 if decodedIsRunning { return .running }
                 if decodedIsStale { return .stale }
+                if decodedIsHeldAfterLoss { return .lost }
                 if signalPresent { return .stale }
-                if captureRunning { return .lost }
                 return .lost
             }()
 
             let displayedText: String = {
-                guard let decodedText = levelState?.decodedTimecodeText else {
+                guard let decodedText = effectiveDecodedText else {
                     return "--:--:--:--"
                 }
 
-                // When LTC is lost, keep the last decoded value visible for two
-                // minutes. The run state remains .lost, so the dashboard renders
-                // this held value in the critical/red state rather than advancing
-                // or hiding it immediately.
-                if decodedIsHeldAfterLoss || decodedIsLost == false {
-                    guard decodedIsRunning,
-                          let decodedAt = levelState?.decodedAt,
-                          let frameRate = levelState?.decodedFrameRate else {
-                        return decodedText
-                    }
-                    return Self.advancedTimecodeText(
-                        from: decodedText,
-                        frameRate: frameRate,
-                        elapsed: max(0.0, date.timeIntervalSince(decodedAt))
-                    ) ?? decodedText
+                // While LTC is actively running, advance the display between
+                // decoded frames. Once signal is lost, hold the final decoded
+                // value in red for two minutes rather than clearing immediately.
+                guard decodedIsRunning,
+                      let decodedAt = effectiveDecodedAt,
+                      let frameRate = effectiveDecodedFrameRate else {
+                    return decodedIsHeldAfterLoss ? decodedText : (decodedAge <= source.lostTimeoutSeconds ? decodedText : "--:--:--:--")
                 }
 
-                return "--:--:--:--"
+                return Self.advancedTimecodeText(
+                    from: decodedText,
+                    frameRate: frameRate,
+                    elapsed: max(0.0, date.timeIntervalSince(decodedAt))
+                ) ?? decodedText
             }()
 
             let message: String = {
@@ -185,7 +197,7 @@ final class TimecodeMonitorService: NSObject {
                     if decodedAge > max(0.30, source.staleTimeoutSeconds) {
                         return "LTC decoded. Display is smoothing between decoded frames."
                     }
-                    return levelState?.decoderMessage ?? "LTC decoded."
+                    return levelState?.decoderMessage ?? snapshot?.message ?? "LTC decoded."
                 }
                 if decodedIsStale {
                     return "LTC signal is stale. Last decoded frame is being held briefly."
@@ -206,9 +218,9 @@ final class TimecodeMonitorService: NSObject {
                 sourceID: source.id,
                 sourceName: source.displayName,
                 timecodeText: displayedText,
-                frameRate: levelState?.decodedFrameRate,
+                frameRate: effectiveDecodedFrameRate,
                 runState: runState,
-                lastFrameDate: levelState?.decodedAt,
+                lastFrameDate: effectiveDecodedAt,
                 audioLevelDescription: levelState?.levelDescription ?? source.inputSourceName,
                 audioLevelDecibels: levelState?.decibels,
                 audioSignalPresent: signalPresent,
@@ -266,4 +278,11 @@ final class TimecodeMonitorService: NSObject {
         let separator = frameRate.separator
         return String(format: "%02d%@%02d%@%02d%@%02d", hour, separator, minute, separator, second, separator, frame)
     }
+}
+
+private struct LastDecodedTimecodeSnapshot: Hashable {
+    var timecodeText: String
+    var frameRate: TimecodeFrameRate?
+    var decodedAt: Date
+    var message: String?
 }

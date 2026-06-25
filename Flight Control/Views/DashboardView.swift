@@ -338,6 +338,9 @@ struct DashboardView: View {
 
             HStack(spacing: 8) {
                 Label(runtimeState.frameRate?.displayName ?? "Auto", systemImage: "speedometer")
+                Text("·")
+                    .foregroundStyle(.tertiary)
+                Text(timecodeDecoderBackendText)
                 Spacer(minLength: 0)
                 Text(runtimeState.runState.displayName.lowercased())
             }
@@ -436,6 +439,24 @@ struct DashboardView: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+
+    private var selectedTimecodeSource: TimecodeSourceConfiguration? {
+        guard let selectedID = UUID(uuidString: appState.settings.selectedTimecodeSourceIDString) else { return nil }
+        return appState.settings.timecodeSourceConfigurations.first(where: { $0.id == selectedID })
+    }
+
+    private var timecodeDecoderBackendText: String {
+        guard let source = selectedTimecodeSource else { return "No decoder" }
+        switch source.type {
+        case .audioLTC:
+            return "Decoder: libltc"
+        case .simulated:
+            return "Decoder: simulated"
+        case .midiTimecode, .networkTimecode:
+            return "Decoder: future"
+        }
     }
 
     private var selectedTimecodeSourceBinding: Binding<String> {

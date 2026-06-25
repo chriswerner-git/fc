@@ -76,6 +76,8 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
     private var lastPublishTime: Date = .distantPast
     private let ltcDecoder = TimecodeLTCDecoderService()
     private var lastDecodeResult: TimecodeLTCDecodeResult?
+    private var decodeSampleBuffer: [Float] = []
+    private var decodeBufferSampleRate: Double = 0
 
     @MainActor
     func startMonitoring(source: TimecodeSourceConfiguration) {
@@ -109,6 +111,8 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
         stopSessionOnly()
         ltcDecoder.reset()
         lastDecodeResult = nil
+        decodeSampleBuffer.removeAll(keepingCapacity: true)
+        decodeBufferSampleRate = 0
 
         let selectedDeviceID = source.inputSourceID
         let selectedSourceID = source.id
@@ -198,6 +202,8 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
         session = nil
         ltcDecoder.reset()
         lastDecodeResult = nil
+        decodeSampleBuffer.removeAll(keepingCapacity: true)
+        decodeBufferSampleRate = 0
         sessionQueue.async {
             if existingSession?.isRunning == true {
                 existingSession?.stopRunning()
@@ -215,26 +221,26 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
         let signalPresent = decibels > -55.0
 
         // Only run the LTC decoder when there is meaningful signal present.
-        // Level metering remains cheap; decoding a sync/search window is the
-        // expensive part and should not burn CPU on silence or disconnected
-        // inputs. The decoder also rate-limits its heavier search internally.
+        // Audio callbacks can arrive very frequently. To reduce CPU, collect a
+        // short contiguous chunk before calling the decoder rather than crossing
+        // the Swift/C decoder boundary for every individual callback buffer.
         if signalPresent {
-            if let decodeResult = ltcDecoder.process(
-                samples: samples,
+            appendSamplesForDecode(
+                samples,
                 sampleRate: extracted.sampleRate,
                 polarityMode: source.polarityMode
-            ) {
-                lastDecodeResult = decodeResult
-            }
+            )
         } else {
             ltcDecoder.reset()
             lastDecodeResult = nil
+            decodeSampleBuffer.removeAll(keepingCapacity: true)
+            decodeBufferSampleRate = 0
         }
 
         // Publish at a bounded rate. We need continuous audio samples for the
         // decoder, but UI/status updates do not need every audio buffer.
         let now = Date()
-        guard now.timeIntervalSince(lastPublishTime) >= 0.10 else { return }
+        guard now.timeIntervalSince(lastPublishTime) >= 0.20 else { return }
         lastPublishTime = now
 
         let decodeResult = lastDecodeResult
@@ -256,6 +262,43 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
                 decoderMessage: decodeIsRecent ? decodeResult?.message : (signalPresent ? "Audio signal present. Waiting for LTC sync." : nil)
             )
         )
+    }
+
+
+    private func appendSamplesForDecode(_ samples: [Float], sampleRate: Double, polarityMode: TimecodePolarityMode) {
+        guard samples.isEmpty == false, sampleRate > 0 else { return }
+
+        if decodeBufferSampleRate <= 0 || abs(decodeBufferSampleRate - sampleRate) > 1.0 {
+            decodeSampleBuffer.removeAll(keepingCapacity: true)
+            decodeBufferSampleRate = sampleRate
+            ltcDecoder.reset()
+            lastDecodeResult = nil
+        }
+
+        decodeSampleBuffer.append(contentsOf: samples)
+
+        // Approximately 50 ms is long enough to include a full LTC frame at
+        // common rates while keeping dashboard latency low. Cap retained data so
+        // a temporarily stalled decoder cannot grow memory.
+        let targetChunkSize = max(512, Int(sampleRate * 0.050))
+        let maximumBufferedSamples = max(targetChunkSize * 3, Int(sampleRate * 0.20))
+
+        if decodeSampleBuffer.count > maximumBufferedSamples {
+            decodeSampleBuffer.removeFirst(decodeSampleBuffer.count - maximumBufferedSamples)
+        }
+
+        guard decodeSampleBuffer.count >= targetChunkSize else { return }
+
+        let chunk = Array(decodeSampleBuffer.prefix(targetChunkSize))
+        decodeSampleBuffer.removeFirst(min(targetChunkSize, decodeSampleBuffer.count))
+
+        if let decodeResult = ltcDecoder.process(
+            samples: chunk,
+            sampleRate: sampleRate,
+            polarityMode: polarityMode
+        ) {
+            lastDecodeResult = decodeResult
+        }
     }
 
     private func publishInactive(sourceID: UUID, message: String) {

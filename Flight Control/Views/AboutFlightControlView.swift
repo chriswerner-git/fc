@@ -41,7 +41,7 @@ struct AboutFlightControlView: View {
                 licenseTitle: "License / Terms of Use",
                 licenseText: licenseText
             ) {
-                EmptyView()
+                thirdPartyNoticePanel
             }
         }
     }
@@ -66,10 +66,52 @@ struct AboutFlightControlView: View {
     }
 
     private var flightControlNoticeText: String {
-        "Flight Control is a local operator-assist utility for device inventory, network reachability checks, system-health visibility, and future remote reporting. Operators should verify monitored systems, alert rules, network conditions, and operating procedures before relying on it during rehearsal, public operation, or production use."
+        "Flight Control is a local operator-assist utility for device inventory, network reachability checks, system-health visibility, timecode monitoring, and future remote reporting. Operators should verify monitored systems, alert rules, network conditions, and operating procedures before relying on it during rehearsal, public operation, or production use."
     }
 
     private var licenseText: String {
         "Flight Control is provided for authorized project monitoring and operational support. Use it at your own risk. The software, source code, interface design, workflows, and documentation remain proprietary to Lunar Telephone Company and may not be copied, redistributed, modified, or reused outside authorized work without written permission."
+    }
+
+    private var thirdPartyNoticePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 26)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Third-Party Timecode Decoder")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text("Flight Control uses x42/libltc through a local LTCLib wrapper for SMPTE LTC audio decoding.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("x42/libltc")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Copyright © 2006–2022 Robin Gareus and contributors. Licensed under the GNU Lesser General Public License v3 or later. Source and license notices are included with the local LTCLib package used by Flight Control.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Upstream: https://github.com/x42/libltc")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
     }
 }

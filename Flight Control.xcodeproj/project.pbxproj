@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		C46D61C22FEC363E008DDC83 /* LunarKit in Frameworks */ = {isa = PBXBuildFile; productRef = C46D61C12FEC363E008DDC83 /* LunarKit */; };
 		C46D61C52FEC36A0008DDC83 /* LunarKit in Frameworks */ = {isa = PBXBuildFile; productRef = C46D61C42FEC36A0008DDC83 /* LunarKit */; };
+		C4D5489C2FECDB2900476B44 /* LTCLib in Frameworks */ = {isa = PBXBuildFile; productRef = C4D5489B2FECDB2900476B44 /* LTCLib */; };
+		C4D5489F2FECDCD900476B44 /* LTCLib in Frameworks */ = {isa = PBXBuildFile; productRef = C4D5489E2FECDCD900476B44 /* LTCLib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,8 +30,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C4D5489F2FECDCD900476B44 /* LTCLib in Frameworks */,
 				C46D61C52FEC36A0008DDC83 /* LunarKit in Frameworks */,
 				C46D61C22FEC363E008DDC83 /* LunarKit in Frameworks */,
+				C4D5489C2FECDB2900476B44 /* LTCLib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +78,8 @@
 			packageProductDependencies = (
 				C46D61C12FEC363E008DDC83 /* LunarKit */,
 				C46D61C42FEC36A0008DDC83 /* LunarKit */,
+				C4D5489B2FECDB2900476B44 /* LTCLib */,
+				C4D5489E2FECDCD900476B44 /* LTCLib */,
 			);
 			productName = "Flight Control";
 			productReference = C46D60C02FEB94A7008DDC83 /* Flight Control.app */;
@@ -105,6 +111,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C46D61C32FEC36A0008DDC83 /* XCLocalSwiftPackageReference "../../LunarKit" */,
+				C4D5489D2FECDCD900476B44 /* XCLocalSwiftPackageReference "../../LTCLib" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C46D60C12FEB94A7008DDC83 /* Products */;
@@ -369,6 +376,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../LunarKit;
 		};
+		C4D5489D2FECDCD900476B44 /* XCLocalSwiftPackageReference "../../LTCLib" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../LTCLib;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -379,6 +390,14 @@
 		C46D61C42FEC36A0008DDC83 /* LunarKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = LunarKit;
+		};
+		C4D5489B2FECDB2900476B44 /* LTCLib */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LTCLib;
+		};
+		C4D5489E2FECDCD900476B44 /* LTCLib */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LTCLib;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

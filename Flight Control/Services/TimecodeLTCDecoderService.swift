@@ -5,16 +5,17 @@
 //  └─────────────────────────────────────────────────────────────┘
 //
 //  File: TimecodeLTCDecoderService.swift
-//  Purpose: Experimental native SMPTE LTC decoder used by Flight Control's
-//           Audio LTC monitor. This service receives normalized audio samples,
-//           detects bi-phase mark transitions, assembles LTC frames, and
-//           publishes decoded timecode for dashboard display and future rules.
+//  Purpose: libltc-backed SMPTE LTC decoder used by Flight Control's Audio LTC
+//           monitor. This service receives normalized audio samples, forwards
+//           them to the vendored x42/libltc decoder package, and publishes
+//           decoded timecode for dashboard display and future alert/rule logic.
 //
 //  Created by Chris Werner / Lunar Telephone Company.
 //  © 2026 Lunar Telephone Company. All rights reserved.
 //
 
 import Foundation
+import LTCLib
 
 struct TimecodeLTCDecodeResult: Hashable, Sendable {
     var timecodeText: String
@@ -25,272 +26,162 @@ struct TimecodeLTCDecodeResult: Hashable, Sendable {
     var message: String
 }
 
-/// A small native LTC decoder designed for monitoring, not mastering.
+/// Flight Control's production LTC decoder facade.
 ///
-/// This decoder intentionally favors safety and continuity over cleverness:
-/// it tolerates clean LTC feeds well, reports confidence, and fails closed
-/// when sync cannot be established. A future libltc-backed decoder may still
-/// replace this layer if field testing shows that broader edge-case handling
-/// is needed.
+/// The first native decoder proved that the monitoring flow worked, but it was
+/// too CPU-heavy for persistent operation. This replacement delegates actual
+/// LTC parsing to x42/libltc through the local LTCLib Swift Package. Multiple
+/// decoder instances are maintained with different starting APV assumptions so
+/// auto-detection is resilient across common LTC rates without requiring the
+/// operator to preselect a frame rate.
 final class TimecodeLTCDecoderService {
-    private var intervals: [Int] = []
-    private var samplesSinceEdge: Int = 0
-    private var lastSign: Int = 0
-    private var lastDecodedKey: String = ""
-    private var recentDecodedFrames: [DecodedFrame] = []
-    private var lastDecodeAttemptUptime: TimeInterval = 0
-    private var intervalCountAtLastDecodeAttempt: Int = 0
+    private struct Backend {
+        let assumedFrameRate: Double
+        let decoder: LTCLibDecoder
+    }
 
-    private let threshold: Float = 0.015
-    private let maxStoredIntervals = 520
-    private let minimumDecodeAttemptInterval: TimeInterval = 0.08
-    private let minimumNewIntervalsBeforeDecode = 36
+    private var backends: [Backend] = []
+    private var currentSampleRate: Double = 0
+    private var lastDecodedKey: String = ""
+    private var lastFrameRate: TimecodeFrameRate?
+    private var lockedBackendIndex: Int?
+    private var lockedBackendMissCount: Int = 0
+    private var nextSearchBackendIndex: Int = 0
+
+    static let backendDisplayName = "libltc"
+
+    /// These assumptions are only used for libltc's initial audio-frames-per-
+    /// video-frame setting. libltc tracks speed dynamically after sync.
+    private let assumedFrameRates: [Double] = [23.976, 25.0, 29.97]
 
     func reset() {
-        intervals.removeAll()
-        samplesSinceEdge = 0
-        lastSign = 0
+        backends.removeAll()
+        currentSampleRate = 0
         lastDecodedKey = ""
-        recentDecodedFrames.removeAll()
-        lastDecodeAttemptUptime = 0
-        intervalCountAtLastDecodeAttempt = 0
+        lastFrameRate = nil
+        lockedBackendIndex = nil
+        lockedBackendMissCount = 0
+        nextSearchBackendIndex = 0
     }
 
     func process(samples: [Float], sampleRate: Double, polarityMode: TimecodePolarityMode) -> TimecodeLTCDecodeResult? {
         guard samples.isEmpty == false, sampleRate > 0 else { return nil }
+        ensureBackends(sampleRate: sampleRate)
 
-        let polarityMultiplier: Float = polarityMode == .inverted ? -1.0 : 1.0
-
-        for rawSample in samples {
-            let sample = rawSample * polarityMultiplier
-            let sign: Int
-            if sample > threshold {
-                sign = 1
-            } else if sample < -threshold {
-                sign = -1
-            } else {
-                sign = lastSign
-            }
-
-            samplesSinceEdge += 1
-
-            if lastSign == 0 {
-                lastSign = sign
-                continue
-            }
-
-            guard sign != 0, sign != lastSign else { continue }
-
-            let interval = samplesSinceEdge
-            samplesSinceEdge = 0
-            lastSign = sign
-
-            let minimumUsefulInterval = max(2, Int(sampleRate / 10_000.0))
-            let maximumUsefulInterval = max(80, Int(sampleRate / 350.0))
-            guard interval >= minimumUsefulInterval, interval <= maximumUsefulInterval else { continue }
-
-            intervals.append(interval)
-            if intervals.count > maxStoredIntervals {
-                intervals.removeFirst(intervals.count - maxStoredIntervals)
-            }
+        let samplesForDecode: [Float]
+        switch polarityMode {
+        case .inverted:
+            samplesForDecode = samples.map { -$0 }
+        case .normal, .automatic:
+            samplesForDecode = samples
         }
 
-        // Edge detection is lightweight and runs on every audio buffer. Full LTC
-        // frame decoding is deliberately rate-limited because the sync search is
-        // more expensive and a dashboard/status monitor does not need to decode
-        // every Core Audio callback. The display layer interpolates between
-        // valid decoded frames while the audio signal remains present.
-        let uptime = ProcessInfo.processInfo.systemUptime
-        let newIntervals = intervals.count - intervalCountAtLastDecodeAttempt
-        guard uptime - lastDecodeAttemptUptime >= minimumDecodeAttemptInterval || newIntervals >= minimumNewIntervalsBeforeDecode else {
-            return nil
-        }
-        lastDecodeAttemptUptime = uptime
-        intervalCountAtLastDecodeAttempt = intervals.count
+        guard let decoded = decodeWithPreferredBackend(samples: samplesForDecode) else { return nil }
 
-        guard let halfBitSamples = estimateHalfBitSamples(sampleRate: sampleRate) else { return nil }
-        guard let frame = decodeMostRecentFrame(halfBitSamples: halfBitSamples) else { return nil }
-
-        let key = "\(frame.hours):\(frame.minutes):\(frame.seconds):\(frame.frames):\(frame.dropFrame)"
+        let frame = decoded.frame
+        let frameRate = decoded.frameRate
+        let timecodeText = normalizedTimecodeText(from: frame, frameRate: frameRate)
+        let key = "\(timecodeText)|\(frameRate.rawValue)|\(frame.dropFrame)"
         guard key != lastDecodedKey else { return nil }
         lastDecodedKey = key
-
-        recentDecodedFrames.append(frame)
-        if recentDecodedFrames.count > 120 {
-            recentDecodedFrames.removeFirst(recentDecodedFrames.count - 120)
-        }
-
-        let detectedFrameRate = inferFrameRate(for: frame)
-        let separator = detectedFrameRate?.separator ?? (frame.dropFrame ? ";" : ":")
-        let text = String(format: "%02d%@%02d%@%02d%@%02d", frame.hours, separator, frame.minutes, separator, frame.seconds, separator, frame.frames)
-        let confidence = min(1.0, max(0.25, frame.syncScore))
-        let message = detectedFrameRate.map { "Decoded LTC · \($0.displayName)" } ?? "Decoded LTC · frame rate detecting"
+        lastFrameRate = frameRate
 
         return TimecodeLTCDecodeResult(
-            timecodeText: text,
-            frameRate: detectedFrameRate,
+            timecodeText: timecodeText,
+            frameRate: frameRate,
             dropFrame: frame.dropFrame,
             decodedAt: frame.decodedAt,
-            confidence: confidence,
-            message: message
+            confidence: 1.0,
+            message: "Decoded LTC · \(Self.backendDisplayName) · \(frameRate.displayName)"
         )
     }
 
-    private func estimateHalfBitSamples(sampleRate: Double) -> Double? {
-        let expectedMinimum = sampleRate / (30.0 * 80.0 * 2.0) * 0.55
-        let expectedMaximum = sampleRate / (23.976 * 80.0) * 1.30
-        let useful = intervals
-            .suffix(360)
-            .filter { Double($0) >= expectedMinimum && Double($0) <= expectedMaximum }
-            .sorted()
 
-        guard useful.count >= 24 else { return nil }
+    private func decodeWithPreferredBackend(samples: [Float]) -> (frame: LTCLibDecodedFrame, frameRate: TimecodeFrameRate)? {
+        guard backends.isEmpty == false else { return nil }
 
-        // LTC transition intervals are usually a mix of half-bit and full-bit
-        // distances. The lower cluster is the half-bit distance. Using a lower
-        // quantile is more stable than a full median when zero bits dominate.
-        let lowerCount = max(8, useful.count / 3)
-        let lowerCluster = Array(useful.prefix(lowerCount))
-        guard lowerCluster.isEmpty == false else { return nil }
-        let mid = lowerCluster.count / 2
-        return Double(lowerCluster[mid])
-    }
-
-    private func decodeMostRecentFrame(halfBitSamples: Double) -> DecodedFrame? {
-        guard intervals.count >= 120 else { return nil }
-
-        let recentIntervals = Array(intervals.suffix(260))
-        let halfUnits = recentIntervals.map { interval -> Int in
-            let ratio = Double(interval) / halfBitSamples
-            if ratio < 0.55 || ratio > 2.85 { return 0 }
-            if ratio < 1.48 { return 1 }
-            return 2
-        }
-
-        var bestFrame: DecodedFrame?
-
-        let searchStart = max(0, halfUnits.count - 190)
-        for startIndex in searchStart..<halfUnits.count {
-            guard let bits = decodeBits(from: halfUnits, startingAt: startIndex), bits.count >= 80 else { continue }
-
-            for windowStart in 0...(bits.count - 80) {
-                let candidate = Array(bits[windowStart..<(windowStart + 80)])
-                guard let syncScore = syncScore(for: Array(candidate[64..<80])), syncScore >= 0.92 else { continue }
-                guard let frame = DecodedFrame(bits: candidate, syncScore: syncScore) else { continue }
-                if bestFrame == nil || frame.syncScore > (bestFrame?.syncScore ?? 0) {
-                    bestFrame = frame
-                }
+        // Once a backend has lock, stay with it. Calling every possible APV
+        // assumption for every audio chunk is reliable but expensive. If the
+        // locked backend misses repeatedly, fall back to a rotating search.
+        if let lockedBackendIndex, backends.indices.contains(lockedBackendIndex) {
+            let backend = backends[lockedBackendIndex]
+            if let frame = backend.decoder.process(samples: samples) {
+                lockedBackendMissCount = 0
+                let frameRate = inferFrameRate(from: frame, assumedFrameRate: backend.assumedFrameRate)
+                return (frame, frameRate)
             }
-        }
 
-        return bestFrame
-    }
-
-    private func decodeBits(from halfUnits: [Int], startingAt startIndex: Int) -> [Int]? {
-        var bits: [Int] = []
-        var index = startIndex
-
-        while index < halfUnits.count, bits.count < 104 {
-            let unit = halfUnits[index]
-            if unit == 2 {
-                bits.append(0)
-                index += 1
-            } else if unit == 1 {
-                guard index + 1 < halfUnits.count, halfUnits[index + 1] == 1 else {
-                    return bits.count >= 80 ? bits : nil
-                }
-                bits.append(1)
-                index += 2
-            } else {
-                return bits.count >= 80 ? bits : nil
+            lockedBackendMissCount += 1
+            if lockedBackendMissCount < 36 {
+                return nil
             }
+
+            self.lockedBackendIndex = nil
+            lockedBackendMissCount = 0
         }
 
-        return bits.count >= 80 ? bits : nil
+        // During acquisition, test one backend per audio chunk and rotate. This
+        // keeps CPU bounded while still allowing auto-detect across common LTC
+        // rates within a short lock-on window.
+        let index = nextSearchBackendIndex % backends.count
+        nextSearchBackendIndex = (index + 1) % backends.count
+        let backend = backends[index]
+
+        guard let frame = backend.decoder.process(samples: samples) else { return nil }
+
+        lockedBackendIndex = index
+        lockedBackendMissCount = 0
+        let frameRate = inferFrameRate(from: frame, assumedFrameRate: backend.assumedFrameRate)
+        return (frame, frameRate)
     }
 
-    private func syncScore(for bits: [Int]) -> Double? {
-        guard bits.count == 16 else { return nil }
-        let syncA = "0011111111111101".map { $0 == "1" ? 1 : 0 }
-        let syncB = bitsOfUInt16(0x3FFD)
-        let matchesA = zip(bits, syncA).filter { $0.0 == $0.1 }.count
-        let matchesB = zip(bits, syncB).filter { $0.0 == $0.1 }.count
-        return Double(max(matchesA, matchesB)) / 16.0
-    }
-
-    private func bitsOfUInt16(_ value: UInt16) -> [Int] {
-        (0..<16).map { index in
-            ((value >> UInt16(index)) & 1) == 1 ? 1 : 0
+    private func ensureBackends(sampleRate: Double) {
+        guard backends.isEmpty || abs(currentSampleRate - sampleRate) > 1.0 else { return }
+        currentSampleRate = sampleRate
+        backends = assumedFrameRates.map { assumedRate in
+            Backend(
+                assumedFrameRate: assumedRate,
+                decoder: LTCLibDecoder(sampleRate: sampleRate, assumedFrameRate: assumedRate, queueSize: 64)
+            )
         }
+        lastDecodedKey = ""
+        lastFrameRate = nil
+        lockedBackendIndex = nil
+        lockedBackendMissCount = 0
+        nextSearchBackendIndex = 0
     }
 
-    private func inferFrameRate(for frame: DecodedFrame) -> TimecodeFrameRate? {
+    private func inferFrameRate(from frame: LTCLibDecodedFrame, assumedFrameRate: Double) -> TimecodeFrameRate {
         if frame.dropFrame { return .fps2997Drop }
 
-        let observedFrames = recentDecodedFrames.map(\.frames)
-        let maxFrame = observedFrames.max() ?? frame.frames
+        let fps = frame.estimatedFPS > 1 ? frame.estimatedFPS : assumedFrameRate
 
-        if maxFrame >= 29 { return .fps30 }
-        if maxFrame >= 25 { return .fps2997NonDrop }
-        if maxFrame == 24 { return .fps25 }
-
-        // If we have watched across at least two second changes without seeing
-        // frames above 23, it is most likely 24 fps. Before that, keep detecting.
-        let uniqueSeconds = Set(recentDecodedFrames.map { "\($0.hours):\($0.minutes):\($0.seconds)" })
-        if uniqueSeconds.count >= 3, maxFrame <= 23 { return .fps24 }
-        return nil
-    }
-}
-
-private struct DecodedFrame: Hashable {
-    var hours: Int
-    var minutes: Int
-    var seconds: Int
-    var frames: Int
-    var dropFrame: Bool
-    var syncScore: Double
-    var decodedAt: Date
-
-    init?(bits: [Int], syncScore: Double) {
-        guard bits.count >= 80 else { return nil }
-
-        let frameUnits = Self.bcdValue(bits, [0, 1, 2, 3])
-        let frameTens = Self.bcdValue(bits, [8, 9])
-        let secondUnits = Self.bcdValue(bits, [16, 17, 18, 19])
-        let secondTens = Self.bcdValue(bits, [24, 25, 26])
-        let minuteUnits = Self.bcdValue(bits, [32, 33, 34, 35])
-        let minuteTens = Self.bcdValue(bits, [40, 41, 42])
-        let hourUnits = Self.bcdValue(bits, [48, 49, 50, 51])
-        let hourTens = Self.bcdValue(bits, [56, 57])
-
-        let frames = frameTens * 10 + frameUnits
-        let seconds = secondTens * 10 + secondUnits
-        let minutes = minuteTens * 10 + minuteUnits
-        let hours = hourTens * 10 + hourUnits
-
-        guard hours >= 0, hours <= 23,
-              minutes >= 0, minutes <= 59,
-              seconds >= 0, seconds <= 59,
-              frames >= 0, frames <= 39 else {
-            return nil
+        if fps < 24.5 {
+            return fps < 23.99 ? .fps23976 : .fps24
         }
 
-        self.hours = hours
-        self.minutes = minutes
-        self.seconds = seconds
-        self.frames = frames
-        self.dropFrame = bits[10] == 1
-        self.syncScore = syncScore
-        self.decodedAt = Date()
+        if fps < 27.0 {
+            return .fps25
+        }
+
+        if fps < 29.985 {
+            return .fps2997NonDrop
+        }
+
+        return .fps30
     }
 
-    private static func bcdValue(_ bits: [Int], _ positions: [Int]) -> Int {
-        var value = 0
-        for (offset, position) in positions.enumerated() where position < bits.count {
-            if bits[position] == 1 {
-                value += 1 << offset
-            }
-        }
-        return value
+    private func normalizedTimecodeText(from frame: LTCLibDecodedFrame, frameRate: TimecodeFrameRate) -> String {
+        let separator = frameRate.separator
+        return String(
+            format: "%02d%@%02d%@%02d%@%02d",
+            frame.hours,
+            separator,
+            frame.minutes,
+            separator,
+            frame.seconds,
+            separator,
+            frame.frames
+        )
     }
 }
