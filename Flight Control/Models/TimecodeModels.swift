@@ -239,6 +239,8 @@ struct TimecodeRuntimeState: Codable, Hashable {
     var runState: TimecodeRunState
     var lastFrameDate: Date?
     var audioLevelDescription: String
+    var audioLevelDecibels: Double? = nil
+    var audioSignalPresent: Bool = false
     var message: String
 
     static let notConfigured = TimecodeRuntimeState(
@@ -249,6 +251,8 @@ struct TimecodeRuntimeState: Codable, Hashable {
         runState: .notConfigured,
         lastFrameDate: nil,
         audioLevelDescription: "No input",
+        audioLevelDecibels: nil,
+        audioSignalPresent: false,
         message: "No timecode source selected."
     )
 }

@@ -860,6 +860,10 @@ private var projectInformationCard: some View {
             Text(timecodeSourceHelpText(for: source))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if source.type == .audioLTC {
+                audioLevelStatusView(for: source)
+            }
         }
         .padding(10)
         .background(LTCDesign.ColorToken.elevatedCardBackground.opacity(0.65))
@@ -890,6 +894,37 @@ private var projectInformationCard: some View {
         }
     }
 
+
+    @ViewBuilder
+    private func audioLevelStatusView(for source: TimecodeSourceConfiguration) -> some View {
+        let state = appState.timecodeAudioLevelStates[source.id]
+        HStack(spacing: 8) {
+            Image(systemName: state?.signalPresent == true ? "waveform.circle.fill" : "waveform.circle")
+                .foregroundStyle(state?.signalPresent == true ? LTCDesign.ColorToken.healthy : LTCDesign.ColorToken.warning)
+                .frame(width: 18)
+
+            Text("Input Level")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(LTCDesign.ColorToken.primaryText)
+
+            Text(state?.levelDescription ?? "Waiting for audio input")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(LTCDesign.ColorToken.secondaryText)
+
+            Spacer(minLength: 8)
+
+            Text(state?.message ?? "Select an Audio LTC source and input device to begin level monitoring.")
+                .font(.caption2)
+                .foregroundStyle(LTCDesign.ColorToken.secondaryText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(LTCDesign.ColorToken.cardBackground.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous))
+    }
+
     private func audioInputHelpText(for source: TimecodeSourceConfiguration) -> String {
         guard source.type == .audioLTC else { return "Audio input is only used by Audio LTC sources." }
         if let device = appState.audioInputDevices.first(where: { $0.uniqueID == source.inputSourceID }) {
@@ -905,9 +940,9 @@ private var projectInformationCard: some View {
         switch source.type {
         case .audioLTC:
             if source.inputSourceID.isEmpty {
-                return "Choose a macOS audio input device such as Dante Virtual Soundcard. Live audio capture and LTC decoding come next."
+                return "Choose a macOS audio input device such as Dante Virtual Soundcard. Level monitoring starts after a selected Audio LTC source has an input device."
             }
-            return "Audio LTC input device is selected. Live audio capture, level metering, and LTC decoding come next."
+            return "Audio LTC input device is selected. Flight Control now monitors signal level; SMPTE LTC decoding comes next."
         case .simulated:
             return "Simulated sources are useful for dashboard and rule testing before live LTC decoding is active."
         case .midiTimecode, .networkTimecode:

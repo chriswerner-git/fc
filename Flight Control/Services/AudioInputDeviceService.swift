@@ -45,6 +45,17 @@ struct AudioInputDeviceInfo: Identifiable, Codable, Hashable, Sendable {
 
 @MainActor
 final class AudioInputDeviceService {
+    func requestAuthorizationIfNeeded(completion: @escaping () -> Void) {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async { completion() }
+            }
+        default:
+            completion()
+        }
+    }
+
     func discoverInputDevices() -> [AudioInputDeviceInfo] {
         AVCaptureDevice.devices(for: .audio)
             .map { device in

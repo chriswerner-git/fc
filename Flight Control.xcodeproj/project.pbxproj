@@ -280,6 +280,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Flight Control";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Flight Control uses audio input to monitor incoming SMPTE LTC timecode sources.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -322,6 +323,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Flight Control";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Flight Control uses audio input to monitor incoming SMPTE LTC timecode sources.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

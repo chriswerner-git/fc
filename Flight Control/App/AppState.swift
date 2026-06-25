@@ -45,12 +45,14 @@ final class AppState: NSObject, ObservableObject {
     @Published var timecodeRuntimeStates: [UUID: TimecodeRuntimeState] = [:]
     @Published var audioInputDevices: [AudioInputDeviceInfo] = []
     @Published var audioInputDeviceAuthorizationStatus: String = "Audio input permission not checked"
+    @Published var timecodeAudioLevelStates: [UUID: TimecodeAudioLevelState] = [:]
 
     private let monitoringEngine = MonitoringEngine()
     private let sleepPreventionService = SleepPreventionService()
     private let uptimeService = UptimeService()
     private let timecodeMonitorService = TimecodeMonitorService()
     private let audioInputDeviceService = AudioInputDeviceService()
+    private let audioInputLevelMonitorService = AudioInputLevelMonitorService()
     private var clockTimer: Timer?
     private var saveTimer: Timer?
 
@@ -80,6 +82,7 @@ final class AppState: NSObject, ObservableObject {
         applyRuntimePreferences()
         startClock()
         timecodeMonitorService.configure(sources: settings.timecodeSourceConfigurations)
+        configureAudioInputLevelMonitor()
 
         if settings.monitoringEnabled {
             monitoringEngine.start()
@@ -93,8 +96,9 @@ final class AppState: NSObject, ObservableObject {
         // AppState is MainActor-isolated, while deinit is treated as a synchronous
         // nonisolated context by Swift concurrency. Schedule the actor-isolated
         // service shutdown back onto the MainActor instead of calling it directly.
-        Task { @MainActor [timecodeMonitorService] in
+        Task { @MainActor [timecodeMonitorService, audioInputLevelMonitorService] in
             timecodeMonitorService.stop()
+            audioInputLevelMonitorService.stopMonitoring(reason: "Flight Control is closing.")
         }
     }
 
@@ -443,14 +447,19 @@ final class AppState: NSObject, ObservableObject {
         settings.clampValues()
         applyRuntimePreferences()
         timecodeMonitorService.configure(sources: settings.timecodeSourceConfigurations)
+        configureAudioInputLevelMonitor()
         if settings.monitoringEnabled { monitoringEngine.start() } else { monitoringEngine.stop() }
         scheduleSave()
     }
 
     func refreshAudioInputDevices() {
-        audioInputDevices = audioInputDeviceService.discoverInputDevices()
-        audioInputDeviceAuthorizationStatus = audioInputDeviceService.authorizationStatusText
-        reconcileTimecodeAudioInputSelections()
+        audioInputDeviceService.requestAuthorizationIfNeeded { [weak self] in
+            guard let self else { return }
+            self.audioInputDevices = self.audioInputDeviceService.discoverInputDevices()
+            self.audioInputDeviceAuthorizationStatus = self.audioInputDeviceService.authorizationStatusText
+            self.reconcileTimecodeAudioInputSelections()
+            self.configureAudioInputLevelMonitor()
+        }
     }
 
     private func reconcileTimecodeAudioInputSelections() {
@@ -548,6 +557,24 @@ final class AppState: NSObject, ObservableObject {
         timecodeMonitorService.onStateUpdate = { [weak self] states in
             self?.timecodeRuntimeStates = states
         }
+
+        audioInputLevelMonitorService.onLevelUpdate = { [weak self] state in
+            guard let self else { return }
+            self.timecodeAudioLevelStates[state.sourceID] = state
+            self.timecodeMonitorService.updateAudioLevelState(state)
+        }
+    }
+
+    private func configureAudioInputLevelMonitor() {
+        guard let selectedSource = selectedTimecodeSourceConfiguration,
+              selectedSource.enabled,
+              selectedSource.type == .audioLTC,
+              selectedSource.inputSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            audioInputLevelMonitorService.stopMonitoring(reason: "No enabled Audio LTC source is selected.")
+            return
+        }
+
+        audioInputLevelMonitorService.startMonitoring(source: selectedSource)
     }
 
     private func configureMonitoringEngine() {
