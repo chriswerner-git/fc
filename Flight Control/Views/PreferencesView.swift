@@ -123,10 +123,26 @@ struct PreferencesView: View {
 
             LTCPreferenceCard(
                 title: "Runtime Preferences",
-                subtitle: "Local launch, sleep, startup, and logging behavior.",
+                subtitle: "Local launch, sleep, startup, and Dock behavior.",
                 systemImage: "power"
             ) {
                 rowStack {
+                    LTCPreferenceRow(
+                        title: "Dock Icon Visibility",
+                        description: "Placeholder for future Dock icon behavior controls."
+                    ) {
+                        Picker("Dock Icon Visibility", selection: .constant("Dashboard Open")) {
+                            Text("Always").tag("Always")
+                            Text("Never").tag("Never")
+                            Text("Dashboard Open").tag("Dashboard Open")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 300)
+                        .disabled(true)
+                        .opacity(0.55)
+                    }
+
                     LTCPreferenceRow(
                         title: "Launch at Startup",
                         description: "Open Flight Control automatically after login when supported by this build."
@@ -153,9 +169,15 @@ struct PreferencesView: View {
                             .labelsHidden()
                             .toggleStyle(.switch)
                     }
+                }
+            }
 
-                    preferenceDivider
-
+            LTCPreferenceCard(
+                title: "Operational Preferences",
+                subtitle: "Operational logging and local status retention.",
+                systemImage: "list.bullet.rectangle"
+            ) {
+                rowStack {
                     LTCPreferenceRow(
                         title: "Operational Logging",
                         description: appState.settings.operationalLoggingEnabled ? "Additional operational messages may be retained for troubleshooting." : "Operational logging is off. Status events are still retained."
@@ -173,6 +195,32 @@ struct PreferencesView: View {
                             .textFieldStyle(.roundedBorder)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 90)
+                    }
+                }
+            }
+
+            LTCPreferenceCard(
+                title: "Remote Link Settings",
+                subtitle: "Future Deep Space Network connection placeholders.",
+                systemImage: "antenna.radiowaves.left.and.right"
+            ) {
+                rowStack {
+                    LTCPreferenceRow(
+                        title: "Deep Space Network Connection",
+                        description: "Placeholder for future reporting to Mission Control. No transmission occurs yet."
+                    ) {
+                        Toggle("", isOn: $appState.settings.deepSpaceNetworkEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+
+                    LTCPreferenceRow(
+                        title: "DSN ID",
+                        description: "Future Deep Space Network identifier. Stored locally but unused for now."
+                    ) {
+                        TextField("DSN ID", text: $appState.settings.missionControlEndpoint)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 260)
                     }
                 }
             }
@@ -209,6 +257,7 @@ struct PreferencesView: View {
     private var projectPane: some View {
         VStack(alignment: .leading, spacing: 16) {
             projectInformationCard
+            systemClockVerificationPlaceholderCard
 
             LTCPreferenceCard(
                 title: "Monitoring Defaults",
@@ -347,39 +396,22 @@ struct PreferencesView: View {
                 }
             }
 
-            LTCPreferenceCard(
-                title: "Future Systems",
-                subtitle: "Visible placeholders for planned Flight Control architecture.",
-                systemImage: "dot.radiowaves.left.and.right"
-            ) {
-                rowStack {
-                    LTCPreferenceRow(
-                        title: "Deep Space Network Placeholder",
-                        description: "Reserved for future reporting to Mission Control. No transmission occurs yet."
-                    ) {
-                        Toggle("", isOn: $appState.settings.deepSpaceNetworkEnabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                    }
+        }
+    }
 
-                    LTCPreferenceRow(
-                        title: "Mission Control Endpoint",
-                        description: "Future DSN endpoint. This value is stored but unused."
-                    ) {
-                        TextField("Mission Control endpoint", text: $appState.settings.missionControlEndpoint)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 260)
-                    }
-
-                    LTCPreferenceRow(
-                        title: "Timecode Integration Placeholder",
-                        description: "Reserved for future LTC/MTC/SMPTE-related status correlation."
-                    ) {
-                        Toggle("", isOn: $appState.settings.timecodeIntegrationEnabled)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                    }
-                }
+private var systemClockVerificationPlaceholderCard: some View {
+        LTCPreferenceCard(
+            title: "System Clock Verification",
+            subtitle: "Future NTP comparison settings for dashboard time-health reporting.",
+            systemImage: "clock.badge.checkmark"
+        ) {
+            rowStack {
+                LTCConfigurationSummaryRow(title: "NTP Comparison", value: "Future", level: .inactive)
+                LTCConfigurationSummaryRow(title: "NTP Server", value: "time.apple.com", level: .inactive)
+                LTCConfigurationSummaryRow(title: "Verification Interval", value: "Future", level: .inactive)
+                LTCConfigurationSummaryRow(title: "Fresh Margin", value: "Future", level: .inactive)
+                LTCConfigurationSummaryRow(title: "Error Margin", value: "Future", level: .inactive)
+                LTCConfigurationSummaryRow(title: "System Time Status", value: "Future", level: .inactive)
             }
         }
     }
