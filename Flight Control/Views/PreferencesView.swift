@@ -54,6 +54,7 @@ struct PreferencesView: View {
             )
             .onAppear {
                 appState.refreshNetworkInterfaces()
+                appState.refreshAudioInputDevices()
                 appState.applySettings()
             }
             .onDisappear {
@@ -328,22 +329,37 @@ struct PreferencesView: View {
 
             LTCPreferenceCard(
                 title: "Timecode Sources",
-                subtitle: "Source definitions for the Dashboard timecode placeholder. Inputs are not active yet.",
+                subtitle: "Configure one or more sources. Audio LTC decoding is prepared here; live DVS/audio capture comes next.",
                 systemImage: "waveform.path.ecg.rectangle"
             ) {
                 rowStack {
                     LTCPreferenceRow(
                         title: "Selected Source",
-                        description: "The Dashboard Timecode Feed panel will display this source."
+                        description: "The Dashboard Timecode panel displays this source. Rules may evaluate selected or named sources later."
                     ) {
-                        Picker("", selection: $appState.settings.selectedTimecodeSource) {
+                        Picker("", selection: $appState.settings.selectedTimecodeSourceIDString) {
                             Text("None").tag("")
-                            ForEach(appState.settings.timecodeSources, id: \.self) { source in
-                                Text(source).tag(source)
+                            ForEach(appState.settings.timecodeSourceConfigurations) { source in
+                                Text(source.displayName).tag(source.id.uuidString)
                             }
                         }
                         .labelsHidden()
-                        .frame(width: 220)
+                        .frame(width: 260)
+                        .onChange(of: appState.settings.selectedTimecodeSourceIDString) { _, _ in
+                            appState.applySettings()
+                        }
+                    }
+
+                    LTCPreferenceRow(
+                        title: "Audio Input Devices",
+                        description: appState.audioInputDeviceAuthorizationStatus
+                    ) {
+                        Button {
+                            appState.refreshAudioInputDevices()
+                        } label: {
+                            Label("Refresh Inputs", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
                     }
 
                     preferenceDivider
@@ -354,18 +370,22 @@ struct PreferencesView: View {
                             .onSubmit { addTimecodeSource() }
 
                         Button { addTimecodeSource() } label: {
-                            Label("Add", systemImage: "plus")
+                            Label("Add Source", systemImage: "plus")
                         }
                         .disabled(newTimecodeSourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(.vertical, 7)
 
-                    sourceList(
-                        values: appState.settings.timecodeSources,
-                        emptyMessage: "No timecode sources defined yet.",
-                        symbol: "clock.badge",
-                        removeAction: removeTimecodeSource
-                    )
+                    if appState.settings.timecodeSourceConfigurations.isEmpty {
+                        LTCConfigurationSummaryRow(title: "Sources", value: "None configured", level: .inactive)
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(appState.settings.timecodeSourceConfigurations) { source in
+                                timecodeSourceRow(source)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
                 }
             }
 
@@ -756,26 +776,220 @@ private var projectInformationCard: some View {
         }
     }
 
-    private func addTimecodeSource() {
-        let value = newTimecodeSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return }
 
-        if !appState.settings.timecodeSources.contains(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
-            appState.settings.timecodeSources.append(value)
-            appState.settings.timecodeSources.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+    @ViewBuilder
+    private func timecodeSourceRow(_ source: TimecodeSourceConfiguration) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: source.type == .simulated ? "clock.arrow.circlepath" : "waveform")
+                    .foregroundStyle(source.enabled ? LTCDesign.ColorToken.accent : .secondary)
+                    .frame(width: 18)
+
+                TextField("Source name", text: timecodeSourceNameBinding(source.id))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 150)
+
+                Toggle("Enabled", isOn: timecodeSourceEnabledBinding(source.id))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                Button(role: .destructive) {
+                    removeTimecodeSource(source.id)
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this timecode source")
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow {
+                    compactTimecodeFieldLabel("Type")
+                    Picker("", selection: timecodeSourceTypeBinding(source.id)) {
+                        ForEach(TimecodeSourceType.allCases) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 190)
+
+                    compactTimecodeFieldLabel("Input Device")
+                    audioInputDevicePicker(for: source)
+                }
+
+                GridRow {
+                    compactTimecodeFieldLabel("Channel")
+                    Picker("", selection: timecodeAudioChannelBinding(source.id)) {
+                        ForEach(TimecodeAudioChannel.allCases) { channel in
+                            Text(channel.displayName).tag(channel)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 190)
+
+                    compactTimecodeFieldLabel("Frame Rate")
+                    Text("Auto Detect")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                GridRow {
+                    compactTimecodeFieldLabel("Polarity")
+                    Picker("", selection: timecodePolarityBinding(source.id)) {
+                        ForEach(TimecodePolarityMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 190)
+
+                    compactTimecodeFieldLabel("Timeouts")
+                    HStack(spacing: 6) {
+                        secondsField(value: timecodeStaleTimeoutBinding(source.id), placeholder: "0.75")
+                        Text("stale")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        secondsField(value: timecodeLostTimeoutBinding(source.id), placeholder: "2.0")
+                        Text("lost")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Text(timecodeSourceHelpText(for: source))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-
-        appState.settings.selectedTimecodeSource = value
-        newTimecodeSourceName = ""
-        appState.applySettings()
+        .padding(10)
+        .background(LTCDesign.ColorToken.elevatedCardBackground.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: LTCDesign.Spacing.smallCornerRadius, style: .continuous)
+                .strokeBorder(LTCDesign.ColorToken.border, lineWidth: 1)
+        )
     }
 
-    private func removeTimecodeSource(_ source: String) {
-        appState.settings.timecodeSources.removeAll { $0.caseInsensitiveCompare(source) == .orderedSame }
-        if appState.settings.selectedTimecodeSource.caseInsensitiveCompare(source) == .orderedSame {
-            appState.settings.selectedTimecodeSource = ""
+    @ViewBuilder
+    private func audioInputDevicePicker(for source: TimecodeSourceConfiguration) -> some View {
+        if source.type == .audioLTC {
+            Picker("", selection: audioInputDeviceBinding(source.id)) {
+                Text("No Input Selected").tag("")
+                ForEach(appState.audioInputDevices) { device in
+                    Text(device.displayName).tag(device.uniqueID)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 240)
+            .help(audioInputHelpText(for: source))
+        } else {
+            Text(source.type == .simulated ? "Not used" : "Future source type")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 240, alignment: .leading)
         }
-        appState.applySettings()
+    }
+
+    private func audioInputHelpText(for source: TimecodeSourceConfiguration) -> String {
+        guard source.type == .audioLTC else { return "Audio input is only used by Audio LTC sources." }
+        if let device = appState.audioInputDevices.first(where: { $0.uniqueID == source.inputSourceID }) {
+            return device.detailText
+        }
+        if source.inputSourceName.isEmpty == false {
+            return "Stored input: \(source.inputSourceName). Click Refresh Inputs after connecting the device."
+        }
+        return appState.audioInputDevices.isEmpty ? "No macOS audio input devices were discovered. Check Dante Virtual Soundcard and macOS audio permissions." : "Choose the macOS audio input carrying SMPTE LTC."
+    }
+
+    private func timecodeSourceHelpText(for source: TimecodeSourceConfiguration) -> String {
+        switch source.type {
+        case .audioLTC:
+            if source.inputSourceID.isEmpty {
+                return "Choose a macOS audio input device such as Dante Virtual Soundcard. Live audio capture and LTC decoding come next."
+            }
+            return "Audio LTC input device is selected. Live audio capture, level metering, and LTC decoding come next."
+        case .simulated:
+            return "Simulated sources are useful for dashboard and rule testing before live LTC decoding is active."
+        case .midiTimecode, .networkTimecode:
+            return "This timecode source type is planned for a future pass."
+        }
+    }
+
+    private func compactTimecodeFieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private func updateTimecodeSource(_ sourceID: UUID, _ update: (inout TimecodeSourceConfiguration) -> Void) {
+        guard var source = appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID }) else { return }
+        update(&source)
+        appState.updateTimecodeSource(source)
+    }
+
+    private func timecodeSourceNameBinding(_ sourceID: UUID) -> Binding<String> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.name ?? "" },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.name = newValue } }
+        )
+    }
+
+    private func timecodeSourceEnabledBinding(_ sourceID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.enabled ?? false },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.enabled = newValue } }
+        )
+    }
+
+    private func timecodeSourceTypeBinding(_ sourceID: UUID) -> Binding<TimecodeSourceType> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.type ?? .audioLTC },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.type = newValue } }
+        )
+    }
+
+    private func audioInputDeviceBinding(_ sourceID: UUID) -> Binding<String> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.inputSourceID ?? "" },
+            set: { newValue in appState.assignAudioInputDevice(newValue, toTimecodeSource: sourceID) }
+        )
+    }
+
+    private func timecodeAudioChannelBinding(_ sourceID: UUID) -> Binding<TimecodeAudioChannel> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.audioChannel ?? .left },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.audioChannel = newValue } }
+        )
+    }
+
+    private func timecodePolarityBinding(_ sourceID: UUID) -> Binding<TimecodePolarityMode> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.polarityMode ?? .automatic },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.polarityMode = newValue } }
+        )
+    }
+
+    private func timecodeStaleTimeoutBinding(_ sourceID: UUID) -> Binding<TimeInterval> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.staleTimeoutSeconds ?? 0.75 },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.staleTimeoutSeconds = newValue } }
+        )
+    }
+
+    private func timecodeLostTimeoutBinding(_ sourceID: UUID) -> Binding<TimeInterval> {
+        Binding(
+            get: { appState.settings.timecodeSourceConfigurations.first(where: { $0.id == sourceID })?.lostTimeoutSeconds ?? 2.0 },
+            set: { newValue in updateTimecodeSource(sourceID) { $0.lostTimeoutSeconds = newValue } }
+        )
+    }
+
+    private func addTimecodeSource() {
+        appState.addTimecodeSource(named: newTimecodeSourceName)
+        newTimecodeSourceName = ""
+    }
+
+    private func removeTimecodeSource(_ sourceID: UUID) {
+        appState.removeTimecodeSource(sourceID)
     }
 
     private func addCameraFeed() {

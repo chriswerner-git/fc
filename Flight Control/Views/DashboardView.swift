@@ -304,28 +304,31 @@ struct DashboardView: View {
         return "\(minutes)m ago"
     }
 
+    @ViewBuilder
     private var timecodeFeedCardContent: some View {
+        let runtimeState = appState.selectedTimecodeRuntimeState
+
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
                 summaryHeader(systemImage: "waveform.path.ecg.rectangle", title: "Timecode", state: timecodeHealthState)
                 Picker("", selection: selectedTimecodeSourceBinding) {
-                    if appState.settings.timecodeSources.isEmpty {
+                    if appState.settings.timecodeSourceConfigurations.isEmpty {
                         Text("No Sources Defined").tag("")
                     } else {
                         Text("None").tag("")
-                        ForEach(appState.settings.timecodeSources, id: \.self) { source in
-                            Text(source).tag(source)
+                        ForEach(appState.settings.timecodeSourceConfigurations) { source in
+                            Text(source.displayName).tag(source.id.uuidString)
                         }
                     }
                 }
                 .labelsHidden()
-                .frame(width: 170)
+                .frame(width: 180)
                 .controlSize(.small)
             }
 
             Spacer(minLength: 2)
 
-            Text(simulatedTimecodeDisplay)
+            Text(runtimeState.timecodeText)
                 .font(.system(size: 34, weight: .semibold, design: .monospaced))
                 .foregroundStyle(timecodeTextColor)
                 .monospacedDigit()
@@ -334,29 +337,44 @@ struct DashboardView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             HStack(spacing: 8) {
-                Label("29.97df", systemImage: "speedometer")
+                Label(runtimeState.frameRate?.displayName ?? "Auto", systemImage: "speedometer")
                 Spacer(minLength: 0)
-                Text(selectedTimecodeSourceBinding.wrappedValue.isEmpty ? "lost / offline" : "selected / offline")
+                Text(runtimeState.runState.displayName.lowercased())
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            Text(runtimeState.message)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
     }
 
-    private var simulatedTimecodeDisplay: String {
-        // Colons indicate non-drop timecode; semicolons indicate drop-frame timecode.
-        // This placeholder is drop-frame because the simulated source is labeled 29.97df.
-        "00;00;00;00"
-    }
-
     private var timecodeHealthState: DeviceHealthState {
-        selectedTimecodeSourceBinding.wrappedValue.isEmpty ? .critical : .unknown
+        switch appState.selectedTimecodeRuntimeState.runState {
+        case .running:
+            return .healthy
+        case .stale:
+            return .warning
+        case .lost, .unavailable:
+            return .critical
+        case .notConfigured:
+            return .unknown
+        }
     }
 
     private var timecodeTextColor: Color {
-        // Future live integration should map active/running to green, post-roll/stale to yellow,
-        // and lost/not-running to red. The placeholder is intentionally lost/offline.
-        selectedTimecodeSourceBinding.wrappedValue.isEmpty ? FCDesign.ColorToken.critical : FCDesign.ColorToken.warning
+        switch appState.selectedTimecodeRuntimeState.runState {
+        case .running:
+            return FCDesign.ColorToken.good
+        case .stale:
+            return FCDesign.ColorToken.warning
+        case .lost, .unavailable:
+            return FCDesign.ColorToken.critical
+        case .notConfigured:
+            return .secondary
+        }
     }
 
     private var cameraFeedCardContent: some View {
@@ -422,9 +440,9 @@ struct DashboardView: View {
 
     private var selectedTimecodeSourceBinding: Binding<String> {
         Binding(
-            get: { appState.settings.selectedTimecodeSource },
+            get: { appState.settings.selectedTimecodeSourceIDString },
             set: { newValue in
-                appState.settings.selectedTimecodeSource = newValue
+                appState.settings.selectedTimecodeSourceIDString = newValue
                 appState.applySettings()
             }
         )

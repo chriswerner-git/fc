@@ -42,10 +42,15 @@ final class AppState: NSObject, ObservableObject {
     @Published var lastRuntimePreferenceError: String? = nil
     @Published var showingCriticalAlert: StatusEvent? = nil
     @Published var currentDate: Date = Date()
+    @Published var timecodeRuntimeStates: [UUID: TimecodeRuntimeState] = [:]
+    @Published var audioInputDevices: [AudioInputDeviceInfo] = []
+    @Published var audioInputDeviceAuthorizationStatus: String = "Audio input permission not checked"
 
     private let monitoringEngine = MonitoringEngine()
     private let sleepPreventionService = SleepPreventionService()
     private let uptimeService = UptimeService()
+    private let timecodeMonitorService = TimecodeMonitorService()
+    private let audioInputDeviceService = AudioInputDeviceService()
     private var clockTimer: Timer?
     private var saveTimer: Timer?
 
@@ -69,9 +74,12 @@ final class AppState: NSObject, ObservableObject {
         super.init()
 
         refreshNetworkInterfaces()
+        refreshAudioInputDevices()
         configureMonitoringEngine()
+        configureTimecodeMonitorService()
         applyRuntimePreferences()
         startClock()
+        timecodeMonitorService.configure(sources: settings.timecodeSourceConfigurations)
 
         if settings.monitoringEnabled {
             monitoringEngine.start()
@@ -81,6 +89,13 @@ final class AppState: NSObject, ObservableObject {
     deinit {
         clockTimer?.invalidate()
         saveTimer?.invalidate()
+
+        // AppState is MainActor-isolated, while deinit is treated as a synchronous
+        // nonisolated context by Swift concurrency. Schedule the actor-isolated
+        // service shutdown back onto the MainActor instead of calling it directly.
+        Task { @MainActor [timecodeMonitorService] in
+            timecodeMonitorService.stop()
+        }
     }
 
     var uptimeDisplay: String { uptimeService.displayText }
@@ -108,6 +123,20 @@ final class AppState: NSObject, ObservableObject {
     }
 
     var enabledDeviceCount: Int { devices.filter(\.enabled).count }
+
+    var selectedTimecodeSourceID: UUID? {
+        UUID(uuidString: settings.selectedTimecodeSourceIDString)
+    }
+
+    var selectedTimecodeSourceConfiguration: TimecodeSourceConfiguration? {
+        guard let selectedTimecodeSourceID else { return nil }
+        return settings.timecodeSourceConfigurations.first { $0.id == selectedTimecodeSourceID }
+    }
+
+    var selectedTimecodeRuntimeState: TimecodeRuntimeState {
+        guard let selectedTimecodeSourceID else { return .notConfigured }
+        return timecodeRuntimeStates[selectedTimecodeSourceID] ?? .notConfigured
+    }
 
     func count(for state: DeviceHealthState) -> Int {
         devices.filter { $0.healthState == state }.count
@@ -413,8 +442,112 @@ final class AppState: NSObject, ObservableObject {
     func applySettings() {
         settings.clampValues()
         applyRuntimePreferences()
+        timecodeMonitorService.configure(sources: settings.timecodeSourceConfigurations)
         if settings.monitoringEnabled { monitoringEngine.start() } else { monitoringEngine.stop() }
         scheduleSave()
+    }
+
+    func refreshAudioInputDevices() {
+        audioInputDevices = audioInputDeviceService.discoverInputDevices()
+        audioInputDeviceAuthorizationStatus = audioInputDeviceService.authorizationStatusText
+        reconcileTimecodeAudioInputSelections()
+    }
+
+    private func reconcileTimecodeAudioInputSelections() {
+        guard audioInputDevices.isEmpty == false else { return }
+        var changed = false
+
+        for index in settings.timecodeSourceConfigurations.indices {
+            guard settings.timecodeSourceConfigurations[index].type == .audioLTC else { continue }
+
+            let currentID = settings.timecodeSourceConfigurations[index].inputSourceID
+            if currentID.isEmpty == false,
+               let device = audioInputDevices.first(where: { $0.uniqueID == currentID }) {
+                if settings.timecodeSourceConfigurations[index].inputSourceName != device.displayName {
+                    settings.timecodeSourceConfigurations[index].inputSourceName = device.displayName
+                    changed = true
+                }
+                continue
+            }
+
+            let storedName = settings.timecodeSourceConfigurations[index].inputSourceName
+            guard storedName.isEmpty == false else { continue }
+            if let matchingDevice = audioInputDevices.first(where: { $0.displayName.caseInsensitiveCompare(storedName) == .orderedSame }) {
+                settings.timecodeSourceConfigurations[index].inputSourceID = matchingDevice.uniqueID
+                settings.timecodeSourceConfigurations[index].inputSourceName = matchingDevice.displayName
+                changed = true
+            }
+        }
+
+        if changed {
+            scheduleSave()
+        }
+    }
+
+    func assignAudioInputDevice(_ deviceID: String, toTimecodeSource sourceID: UUID) {
+        guard let index = settings.timecodeSourceConfigurations.firstIndex(where: { $0.id == sourceID }) else { return }
+        if deviceID.isEmpty {
+            settings.timecodeSourceConfigurations[index].inputSourceID = ""
+            settings.timecodeSourceConfigurations[index].inputSourceName = ""
+        } else if let device = audioInputDevices.first(where: { $0.uniqueID == deviceID }) {
+            settings.timecodeSourceConfigurations[index].inputSourceID = device.uniqueID
+            settings.timecodeSourceConfigurations[index].inputSourceName = device.displayName
+        } else {
+            settings.timecodeSourceConfigurations[index].inputSourceID = deviceID
+        }
+        applySettings()
+    }
+
+    func addTimecodeSource(named name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard !settings.timecodeSourceConfigurations.contains(where: { $0.displayName.caseInsensitiveCompare(trimmedName) == .orderedSame }) else {
+            if let existing = settings.timecodeSourceConfigurations.first(where: { $0.displayName.caseInsensitiveCompare(trimmedName) == .orderedSame }) {
+                settings.selectedTimecodeSourceIDString = existing.id.uuidString
+            }
+            applySettings()
+            return
+        }
+
+        var source = TimecodeSourceConfiguration()
+        source.name = trimmedName
+        source.type = .audioLTC
+        if let preferredDevice = audioInputDevices.first(where: { $0.displayName.localizedCaseInsensitiveContains("Dante Virtual Soundcard") }) ?? audioInputDevices.first {
+            source.inputSourceID = preferredDevice.uniqueID
+            source.inputSourceName = preferredDevice.displayName
+        }
+        source.audioChannel = .left
+        source.clampValues()
+        settings.timecodeSourceConfigurations.append(source)
+        settings.selectedTimecodeSourceIDString = source.id.uuidString
+        applySettings()
+    }
+
+    func removeTimecodeSource(_ sourceID: UUID) {
+        settings.timecodeSourceConfigurations.removeAll { $0.id == sourceID }
+        if settings.selectedTimecodeSourceIDString == sourceID.uuidString {
+            settings.selectedTimecodeSourceIDString = ""
+        }
+        applySettings()
+    }
+
+    func updateTimecodeSource(_ source: TimecodeSourceConfiguration) {
+        guard let index = settings.timecodeSourceConfigurations.firstIndex(where: { $0.id == source.id }) else { return }
+        var updated = source
+        if updated.type == .audioLTC,
+           updated.inputSourceID.isEmpty == false,
+           let device = audioInputDevices.first(where: { $0.uniqueID == updated.inputSourceID }) {
+            updated.inputSourceName = device.displayName
+        }
+        updated.clampValues()
+        settings.timecodeSourceConfigurations[index] = updated
+        applySettings()
+    }
+
+    private func configureTimecodeMonitorService() {
+        timecodeMonitorService.onStateUpdate = { [weak self] states in
+            self?.timecodeRuntimeStates = states
+        }
     }
 
     private func configureMonitoringEngine() {

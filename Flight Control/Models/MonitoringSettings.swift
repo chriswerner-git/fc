@@ -103,8 +103,14 @@ struct MonitoringSettings: Codable, Hashable {
     var deepSpaceNetworkEnabled: Bool = false
     var missionControlEndpoint: String = ""
     var timecodeIntegrationEnabled: Bool = false
+
+    // Legacy string-only timecode source fields are retained for compatibility with
+    // previously saved preferences. New code uses timecodeSourceConfigurations.
     var timecodeSources: [String] = []
     var selectedTimecodeSource: String = ""
+
+    var timecodeSourceConfigurations: [TimecodeSourceConfiguration] = []
+    var selectedTimecodeSourceIDString: String = ""
     var cameraFeedNames: [String] = []
     var dashboardDividers: [DashboardDivider] = []
 
@@ -134,6 +140,8 @@ struct MonitoringSettings: Codable, Hashable {
         case timecodeIntegrationEnabled
         case timecodeSources
         case selectedTimecodeSource
+        case timecodeSourceConfigurations
+        case selectedTimecodeSourceIDString
         case cameraFeedNames
         case dashboardDividers
     }
@@ -167,6 +175,8 @@ struct MonitoringSettings: Codable, Hashable {
         timecodeIntegrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .timecodeIntegrationEnabled) ?? false
         timecodeSources = try container.decodeIfPresent([String].self, forKey: .timecodeSources) ?? []
         selectedTimecodeSource = try container.decodeIfPresent(String.self, forKey: .selectedTimecodeSource) ?? ""
+        timecodeSourceConfigurations = try container.decodeIfPresent([TimecodeSourceConfiguration].self, forKey: .timecodeSourceConfigurations) ?? []
+        selectedTimecodeSourceIDString = try container.decodeIfPresent(String.self, forKey: .selectedTimecodeSourceIDString) ?? ""
         cameraFeedNames = try container.decodeIfPresent([String].self, forKey: .cameraFeedNames) ?? []
         dashboardDividers = try container.decodeIfPresent([DashboardDivider].self, forKey: .dashboardDividers) ?? []
         clampValues()
@@ -196,8 +206,44 @@ struct MonitoringSettings: Codable, Hashable {
         }
         timecodeSources = cleanedSources.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
+        // Migrate legacy string-only timecode source names into full source configurations.
+        for source in timecodeSources {
+            if !timecodeSourceConfigurations.contains(where: { $0.displayName.caseInsensitiveCompare(source) == .orderedSame }) {
+                var migrated = TimecodeSourceConfiguration()
+                migrated.name = source
+                migrated.type = .audioLTC
+                migrated.clampValues()
+                timecodeSourceConfigurations.append(migrated)
+            }
+        }
+
+        for index in timecodeSourceConfigurations.indices {
+            timecodeSourceConfigurations[index].clampValues()
+        }
+
+        var uniqueConfigurations: [TimecodeSourceConfiguration] = []
+        for source in timecodeSourceConfigurations.sorted(by: { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }) {
+            if !uniqueConfigurations.contains(where: { $0.id == source.id || $0.displayName.caseInsensitiveCompare(source.displayName) == .orderedSame }) {
+                uniqueConfigurations.append(source)
+            }
+        }
+        timecodeSourceConfigurations = uniqueConfigurations
+        timecodeSources = timecodeSourceConfigurations.map(\.displayName)
+
         selectedTimecodeSource = selectedTimecodeSource.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !selectedTimecodeSource.isEmpty, !timecodeSources.contains(where: { $0.caseInsensitiveCompare(selectedTimecodeSource) == .orderedSame }) {
+        if selectedTimecodeSourceIDString.isEmpty,
+           let legacySelection = timecodeSourceConfigurations.first(where: { $0.displayName.caseInsensitiveCompare(selectedTimecodeSource) == .orderedSame }) {
+            selectedTimecodeSourceIDString = legacySelection.id.uuidString
+        }
+
+        if !selectedTimecodeSourceIDString.isEmpty,
+           !timecodeSourceConfigurations.contains(where: { $0.id.uuidString == selectedTimecodeSourceIDString }) {
+            selectedTimecodeSourceIDString = ""
+        }
+
+        if let selected = timecodeSourceConfigurations.first(where: { $0.id.uuidString == selectedTimecodeSourceIDString }) {
+            selectedTimecodeSource = selected.displayName
+        } else {
             selectedTimecodeSource = ""
         }
 
