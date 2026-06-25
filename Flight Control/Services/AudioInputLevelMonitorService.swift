@@ -5,11 +5,9 @@
 //  └─────────────────────────────────────────────────────────────┘
 //
 //  File: AudioInputLevelMonitorService.swift
-//  Purpose: Opens the selected macOS audio input for Audio LTC sources and
-//           publishes lightweight signal/level information. This service does
-//           not decode SMPTE LTC yet; it only verifies that the selected input
-//           can be opened and that audio energy is present on the selected
-//           channel.
+//  Purpose: Opens the selected macOS audio input for Audio LTC sources,
+//           publishes lightweight signal/level information, and feeds audio
+//           samples into Flight Control's native SMPTE LTC decoder.
 //
 //  Created by Chris Werner / Lunar Telephone Company.
 //  © 2026 Lunar Telephone Company. All rights reserved.
@@ -30,6 +28,10 @@ struct TimecodeAudioLevelState: Hashable, Sendable {
     var signalPresent: Bool
     var isCaptureRunning: Bool
     var message: String
+    var decodedTimecodeText: String? = nil
+    var decodedFrameRate: TimecodeFrameRate? = nil
+    var decodedAt: Date? = nil
+    var decoderMessage: String? = nil
 
     static func inactive(sourceID: UUID, message: String = "Audio capture inactive") -> TimecodeAudioLevelState {
         TimecodeAudioLevelState(
@@ -40,7 +42,11 @@ struct TimecodeAudioLevelState: Hashable, Sendable {
             peak: 0,
             signalPresent: false,
             isCaptureRunning: false,
-            message: message
+            message: message,
+            decodedTimecodeText: nil,
+            decodedFrameRate: nil,
+            decodedAt: nil,
+            decoderMessage: nil
         )
     }
 
@@ -50,22 +56,26 @@ struct TimecodeAudioLevelState: Hashable, Sendable {
     }
 }
 
-/// Captures audio from one selected macOS input device and reports level only.
+/// Captures audio from one selected macOS input device, reports level, and
+/// performs a first-pass native SMPTE LTC decode.
 ///
 /// Notes:
-/// - This first implementation monitors the selected dashboard/source input.
-/// - Multiple simultaneous devices will require one capture session per device
-///   or a more advanced Core Audio HAL path in a later pass.
-/// - LTC decoding is intentionally out of scope for this service.
+/// - This implementation monitors the selected dashboard/source input.
+/// - Multiple simultaneous audio devices will require one capture session per
+///   device or a more advanced Core Audio HAL path in a later pass.
+/// - The native decoder is intentionally conservative; it reports level even
+///   when LTC sync has not yet been established.
 final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
     var onLevelUpdate: ((TimecodeAudioLevelState) -> Void)?
 
-    private let sessionQueue = DispatchQueue(label: "com.lunartelephone.flightcontrol.audio-level-session", qos: .userInitiated)
-    private let sampleQueue = DispatchQueue(label: "com.lunartelephone.flightcontrol.audio-level-samples", qos: .userInitiated)
+    private let sessionQueue = DispatchQueue(label: "com.lunartelephone.flightcontrol.audio-level-session", qos: .utility)
+    private let sampleQueue = DispatchQueue(label: "com.lunartelephone.flightcontrol.audio-level-samples", qos: .utility)
 
     private var session: AVCaptureSession?
     private var monitoredSource: TimecodeSourceConfiguration?
     private var lastPublishTime: Date = .distantPast
+    private let ltcDecoder = TimecodeLTCDecoderService()
+    private var lastDecodeResult: TimecodeLTCDecodeResult?
 
     @MainActor
     func startMonitoring(source: TimecodeSourceConfiguration) {
@@ -97,6 +107,8 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
         guard session == nil || previousSourceID != source.id || previousInputID != source.inputSourceID || previousChannel != source.audioChannel else { return }
 
         stopSessionOnly()
+        ltcDecoder.reset()
+        lastDecodeResult = nil
 
         let selectedDeviceID = source.inputSourceID
         let selectedSourceID = source.id
@@ -184,6 +196,8 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
     private func stopSessionOnly() {
         let existingSession = session
         session = nil
+        ltcDecoder.reset()
+        lastDecodeResult = nil
         sessionQueue.async {
             if existingSession?.isRunning == true {
                 existingSession?.stopRunning()
@@ -194,14 +208,37 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let source = monitoredSource else { return }
 
-        // Publish at a bounded rate. We only need a visual/status meter, not every buffer.
+        let extracted = Self.extractChannelSamples(sampleBuffer: sampleBuffer, channelIndex: source.audioChannel.zeroBasedChannelIndex)
+        let samples = extracted.samples
+        let level = Self.measureLevel(samples: samples)
+        let decibels = level.rms > 0.000_001 ? max(-120.0, min(0.0, 20.0 * log10(level.rms))) : -120.0
+        let signalPresent = decibels > -55.0
+
+        // Only run the LTC decoder when there is meaningful signal present.
+        // Level metering remains cheap; decoding a sync/search window is the
+        // expensive part and should not burn CPU on silence or disconnected
+        // inputs. The decoder also rate-limits its heavier search internally.
+        if signalPresent {
+            if let decodeResult = ltcDecoder.process(
+                samples: samples,
+                sampleRate: extracted.sampleRate,
+                polarityMode: source.polarityMode
+            ) {
+                lastDecodeResult = decodeResult
+            }
+        } else {
+            ltcDecoder.reset()
+            lastDecodeResult = nil
+        }
+
+        // Publish at a bounded rate. We need continuous audio samples for the
+        // decoder, but UI/status updates do not need every audio buffer.
         let now = Date()
         guard now.timeIntervalSince(lastPublishTime) >= 0.10 else { return }
         lastPublishTime = now
 
-        let level = Self.measureLevel(sampleBuffer: sampleBuffer, channelIndex: source.audioChannel.zeroBasedChannelIndex)
-        let decibels = level.rms > 0.000_001 ? max(-120.0, min(0.0, 20.0 * log10(level.rms))) : -120.0
-        let signalPresent = decibels > -55.0
+        let decodeResult = lastDecodeResult
+        let decodeIsRecent = decodeResult.map { now.timeIntervalSince($0.decodedAt) <= max(0.5, source.staleTimeoutSeconds) } ?? false
 
         publish(
             TimecodeAudioLevelState(
@@ -212,7 +249,11 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
                 peak: level.peak,
                 signalPresent: signalPresent,
                 isCaptureRunning: true,
-                message: signalPresent ? "Audio signal present" : "No meaningful audio signal detected"
+                message: signalPresent ? "Audio signal present" : "No meaningful audio signal detected",
+                decodedTimecodeText: decodeResult?.timecodeText,
+                decodedFrameRate: decodeResult?.frameRate,
+                decodedAt: decodeResult?.decodedAt,
+                decoderMessage: decodeIsRecent ? decodeResult?.message : (signalPresent ? "Audio signal present. Waiting for LTC sync." : nil)
             )
         )
     }
@@ -249,14 +290,14 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
         }
     }
 
-    private static func measureLevel(sampleBuffer: CMSampleBuffer, channelIndex: Int) -> (rms: Double, peak: Double) {
+    private static func extractChannelSamples(sampleBuffer: CMSampleBuffer, channelIndex: Int) -> (samples: [Float], sampleRate: Double) {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
-            return (0, 0)
+            return ([], 0)
         }
 
         let asbd = asbdPointer.pointee
-        let bytesPerFrame = max(1, Int(asbd.mBytesPerFrame))
+        let sampleRate = asbd.mSampleRate
         let bytesPerSample = max(1, Int(asbd.mBitsPerChannel / 8))
         let channelCount = max(1, Int(asbd.mChannelsPerFrame))
         let selectedChannel = min(max(0, channelIndex), channelCount - 1)
@@ -277,7 +318,7 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
             blockBufferOut: &blockBuffer
         )
 
-        guard status == noErr, neededSize > 0 else { return (0, 0) }
+        guard status == noErr, neededSize > 0 else { return ([], sampleRate) }
 
         let rawPointer = UnsafeMutableRawPointer.allocate(byteCount: neededSize, alignment: MemoryLayout<AudioBufferList>.alignment)
         defer { rawPointer.deallocate() }
@@ -294,12 +335,11 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
             blockBufferOut: &blockBuffer
         )
 
-        guard status == noErr else { return (0, 0) }
+        guard status == noErr else { return ([], sampleRate) }
 
         let buffers = UnsafeMutableAudioBufferListPointer(audioBufferListPointer)
-        var sumSquares = 0.0
-        var peak = 0.0
-        var sampleCount = 0
+        var samples: [Float] = []
+        samples.reserveCapacity(4096)
 
         for bufferIndex in buffers.indices {
             let buffer = buffers[bufferIndex]
@@ -315,11 +355,7 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
                 let start = isNonInterleaved ? 0 : selectedChannel
                 var index = start
                 while index < valueCount {
-                    let value = Double(values[index])
-                    let magnitude = abs(value)
-                    sumSquares += value * value
-                    peak = max(peak, magnitude)
-                    sampleCount += 1
+                    samples.append(max(-1.0, min(1.0, values[index])))
                     index += stride
                 }
             } else if isSignedInteger, bytesPerSample == 2 {
@@ -329,11 +365,7 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
                 let start = isNonInterleaved ? 0 : selectedChannel
                 var index = start
                 while index < valueCount {
-                    let value = Double(values[index]) / Double(Int16.max)
-                    let magnitude = abs(value)
-                    sumSquares += value * value
-                    peak = max(peak, magnitude)
-                    sampleCount += 1
+                    samples.append(Float(Double(values[index]) / Double(Int16.max)))
                     index += stride
                 }
             } else if isSignedInteger, bytesPerSample == 4 {
@@ -343,22 +375,28 @@ final class AudioInputLevelMonitorService: NSObject, AVCaptureAudioDataOutputSam
                 let start = isNonInterleaved ? 0 : selectedChannel
                 var index = start
                 while index < valueCount {
-                    let value = Double(values[index]) / Double(Int32.max)
-                    let magnitude = abs(value)
-                    sumSquares += value * value
-                    peak = max(peak, magnitude)
-                    sampleCount += 1
+                    samples.append(Float(Double(values[index]) / Double(Int32.max)))
                     index += stride
                 }
-            } else {
-                // Unknown PCM layout. Avoid reporting a misleading level.
-                continue
             }
         }
 
-        guard sampleCount > 0 else { return (0, 0) }
-        return (sqrt(sumSquares / Double(sampleCount)), min(1.0, peak))
+        return (samples, sampleRate)
     }
+
+    private static func measureLevel(samples: [Float]) -> (rms: Double, peak: Double) {
+        guard samples.isEmpty == false else { return (0, 0) }
+        var sumSquares = 0.0
+        var peak = 0.0
+        for sample in samples {
+            let value = Double(sample)
+            let magnitude = abs(value)
+            sumSquares += value * value
+            peak = max(peak, magnitude)
+        }
+        return (sqrt(sumSquares / Double(samples.count)), min(1.0, peak))
+    }
+
 }
 
 private extension TimecodeAudioChannel {
